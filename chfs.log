@@ -1,0 +1,1 @@
+CHFS FUSE log startUnimplemented function of chfs: virtual chfs::ChfsNullResult chfs::BlockManager::zero_block(chfs::block_id_t) at /home/stu/chfs/src/block/manager.cc:105
