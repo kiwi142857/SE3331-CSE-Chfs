@@ -33,7 +33,7 @@ BlockManager::BlockManager(const std::string &file)
 
 /**
  * Creates a new block manager that writes to a file-backed block device.
- * @param block_file the file name of the  file to write to
+ * @param block_file the file name of the file to write to
  * @param block_cnt the number of expected blocks in the device. If the
  * device's blocks are more or less than it, the manager should adjust the
  * actual block cnt.
@@ -75,8 +75,13 @@ BlockManager::BlockManager(const std::string &file, usize block_cnt)
 auto BlockManager::write_block(block_id_t block_id, const u8 *data)
     -> ChfsNullResult {
   
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // Make sure the block id is within the range
+  CHFS_ASSERT(block_id < this->block_cnt, "Block id out of range");
+  
+  // To write a block, we need to calculate the offset
+  // and then write the data to the block.
+  usize offset = block_id * this->block_sz;
+  std::memcpy(this->block_data + offset, data, this->block_sz);
 
   return KNullOk;
 }
@@ -85,24 +90,42 @@ auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
                                        usize offset, usize len)
     -> ChfsNullResult {
   
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // Make sure the block id is within the range
+  CHFS_ASSERT(block_id < this->block_cnt, "Block id out of range");
+
+  // Make sure the offset and length are within the block size
+  CHFS_ASSERT(offset + len <= this->block_sz, "Offset and length out of range");
+
+  // To write a partial block, we need to calculate the offset
+  // and then write the data to the block.
+  usize block_offset = block_id * this->block_sz;
+  std::memcpy(this->block_data + block_offset + offset, data, len);
 
   return KNullOk;
 }
 
 auto BlockManager::read_block(block_id_t block_id, u8 *data) -> ChfsNullResult {
 
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // Make sure the block id is within the range
+  CHFS_ASSERT(block_id < this->block_cnt, "Block id out of range");
+
+  // To read a block, we need to calculate the offset
+  // and then read the data from the block.
+  usize offset = block_id * this->block_sz;
+  std::memcpy(data, this->block_data + offset, this->block_sz);
 
   return KNullOk;
 }
 
 auto BlockManager::zero_block(block_id_t block_id) -> ChfsNullResult {
   
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // Make sure the block id is within the range
+  CHFS_ASSERT(block_id < this->block_cnt, "Block id out of range");
+
+  // To zero a block, we need to calculate the offset
+  // and then zero the data in the block.
+  usize offset = block_id * this->block_sz;
+  std::memset(this->block_data + offset, 0, this->block_sz);
 
   return KNullOk;
 }
