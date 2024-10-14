@@ -35,8 +35,10 @@ protected:
 // Test creating a superblock from zero
 TEST_F(InodeManagerTest, InitAndTable) {
   // test inode table
+  std::cout << "Test inode table" << std::endl;
   for (inode_id_t i = 1; i < 64; ++i) {
     inode_manager->set_table(i - 1, i + 73).unwrap();
+    std::cout<<inode_manager->get(i).unwrap()<< ": "<< i+73<<std::endl;
     ASSERT_EQ(inode_manager->get(i).unwrap(), i + 73);
   }
   test_inode_num = inode_manager->get_max_inode_supported();

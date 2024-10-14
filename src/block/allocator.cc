@@ -109,7 +109,6 @@ auto BlockAllocator::allocate() -> ChfsResult<block_id_t> {
                 .find_first_free_w_bound(this->last_block_num);
       
     } else {
-
       // Find the first free bit of current bitmap block
       // and store it in `res`.
       
