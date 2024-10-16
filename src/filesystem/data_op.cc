@@ -6,15 +6,45 @@ namespace chfs {
 
 // {Your code here}
 auto FileOperation::alloc_inode(InodeType type) -> ChfsResult<inode_id_t> {
-  inode_id_t inode_id = static_cast<inode_id_t>(0);
-  auto inode_res = ChfsResult<inode_id_t>(inode_id);
+  // inode_id_t inode_id = static_cast<inode_id_t>(0);
+  // auto inode_res = ChfsResult<inode_id_t>(inode_id);
 
   // TODO:
   // 1. Allocate a block for the inode.
   // 2. Allocate an inode.
   // 3. Initialize the inode block
   //    and write the block back to block manager.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+
+  // Allocate a block for the inode.
+  auto block_res = this->block_allocator_->allocate();
+
+  if (block_res.is_err()) {
+    return ChfsResult<inode_id_t>(block_res.unwrap_error());
+  }
+
+  auto block_id = block_res.unwrap();
+
+  // Allocate an inode.
+  auto inode_res = this->inode_manager_->allocate_inode(type, block_id);
+
+  if (inode_res.is_err()) {
+    return ChfsResult<inode_id_t>(inode_res.unwrap_error());
+  }
+
+  // auto inode_id = inode_res.unwrap();
+
+  // Initialize the inode block
+  std::vector<u8> buffer(this->block_manager_->block_size());
+  Inode inode(type, this->block_manager_->block_size());
+  inode.flush_to_buffer(buffer.data());
+
+  // Write the block back to block manager.
+  auto write_res = this->block_manager_->write_block(block_id, buffer.data());
+
+  if (write_res.is_err()) {
+    return ChfsResult<inode_id_t>(write_res.unwrap_error());
+  }
 
   return inode_res;
 }
