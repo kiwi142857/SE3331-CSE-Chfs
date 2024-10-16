@@ -60,12 +60,17 @@ TEST_F(InodeManagerTest, Allocation) {
     auto free_block_res = allocator.allocate();
     if (free_block_res.is_err()) {
       ASSERT_EQ(prev_id, test_block_cnt - 1);
+      std::cout << "--ALLOCATE FREE BLOCK FAIL--" << std::endl;
       break;
     }
     auto free_block = free_block_res.unwrap();
     auto inode_id =
         inode_manager1.allocate_inode(InodeType::Directory, free_block)
             .unwrap();
+    // check the file type of inode
+    auto inode_type = inode_manager1.get_type(inode_id).unwrap();
+    ASSERT_EQ(inode_type, InodeType::Directory);
+    std::cout << "TYPE PASS" << std::endl;
     ASSERT_EQ(inode_id, i + 1);
     prev_id = free_block;
   }

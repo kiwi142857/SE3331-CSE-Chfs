@@ -74,7 +74,7 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
   if (iter_res.is_err()) {
     return ChfsResult<inode_id_t>(iter_res.unwrap_error());
   }
-
+  
   inode_id_t count = 0;
 
   // Find an available inode ID.
@@ -105,10 +105,15 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
       std::vector<u8> buffer(bm->block_size());
       Inode inode(type, bm->block_size());
       inode.flush_to_buffer(buffer.data());
+
+      auto write_res = bm->write_block(bid, buffer.data());
+      if (write_res.is_err()) {
+        return ChfsResult<inode_id_t>(write_res.unwrap_error());
+      }
+
       // 2. Setup the inode table.
-      inode_id_t inode_index =
-                free_idx.value() + count * bm->block_size() * KBitsPerByte;
-      auto set_table_res = this->set_table(RAW_2_LOGIC(count), bid);
+      inode_id_t inode_index =free_idx.value() + count * bm->block_size() * KBitsPerByte;
+      auto set_table_res = this->set_table(inode_index, bid);
       if (set_table_res.is_err()) {
         return ChfsResult<inode_id_t>(set_table_res.unwrap_error());
       }

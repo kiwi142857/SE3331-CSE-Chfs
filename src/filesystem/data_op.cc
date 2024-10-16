@@ -28,6 +28,9 @@ auto FileOperation::alloc_inode(InodeType type) -> ChfsResult<inode_id_t> {
   // Allocate an inode.
   auto inode_res = this->inode_manager_->allocate_inode(type, block_id);
 
+  // TODO: For DEBUG
+  std::cout << "Allocated inode's file type: " << static_cast<int>(type)
+            << std::endl;
   if (inode_res.is_err()) {
     return ChfsResult<inode_id_t>(inode_res.unwrap_error());
   }
@@ -35,16 +38,6 @@ auto FileOperation::alloc_inode(InodeType type) -> ChfsResult<inode_id_t> {
   // auto inode_id = inode_res.unwrap();
 
   // Initialize the inode block
-  std::vector<u8> buffer(this->block_manager_->block_size());
-  Inode inode(type, this->block_manager_->block_size());
-  inode.flush_to_buffer(buffer.data());
-
-  // Write the block back to block manager.
-  auto write_res = this->block_manager_->write_block(block_id, buffer.data());
-
-  if (write_res.is_err()) {
-    return ChfsResult<inode_id_t>(write_res.unwrap_error());
-  }
 
   return inode_res;
 }
