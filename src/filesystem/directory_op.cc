@@ -42,7 +42,12 @@ auto append_to_directory(std::string src, std::string filename, inode_id_t id)
 
   // TODO: Implement this function.
   //       Append the new directory entry to `src`.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+
+  if (src.size() > 0 && src.back() != '/') {
+    src += '/';
+  }
+  src += filename + ':' + inode_id_to_string(id);
   
   return src;
 }
@@ -51,7 +56,38 @@ auto append_to_directory(std::string src, std::string filename, inode_id_t id)
 void parse_directory(std::string &src, std::list<DirectoryEntry> &list) {
 
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+
+  // e.g., "name0:inode0/name1:inode1/ ..."
+  std::cout << "src: " << src << "   " << __LINE__ << std::endl;
+  if(src.size() == 0) {
+    return;
+  }
+  std::string::size_type start = 0;
+  std::string::size_type end = 0;
+  while (end != std::string::npos) {
+    end = src.find('/', start);
+    if (end == std::string::npos) {
+      end = src.size();
+    }
+    std::cout << "start: " << start << "   end: " << end << "  " << __LINE__ << std::endl;
+    if(start >= end) {
+      break;
+    }
+    auto entry = src.substr(start, end - start);
+    std::string::size_type pos = entry.find(':');
+    if (pos != std::string::npos) {
+      std::cout<< "entry: " << entry << "   " << __LINE__ << std::endl;
+      auto name = entry.substr(0, pos);
+      std::cout << "name: " << name << "   " << __LINE__ << std::endl;
+      auto inode = entry.substr(pos + 1);
+      std::cout << "inode: " << inode << "   " << __LINE__ << std::endl;
+      list.push_back(DirectoryEntry{name, string_to_inode_id(inode)});
+    }
+    start = end + 1;
+  }
+
+  return;
 
 }
 
@@ -62,7 +98,31 @@ auto rm_from_directory(std::string src, std::string filename) -> std::string {
 
   // TODO: Implement this function.
   //       Remove the directory entry from `src`.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+
+  std::string::size_type start = 0;
+  std::string::size_type end = 0;
+  while (end != std::string::npos) {
+    end = src.find('/', start);
+    if (end == std::string::npos) {
+      end = src.size();
+    }
+    if(start >= end) {
+      break;
+    }
+    auto entry = src.substr(start, end - start);
+    std::string::size_type pos = entry.find(':');
+    if (pos != std::string::npos) {
+      auto name = entry.substr(0, pos);
+      if (name != filename) {
+        if (res.size() > 0 && res.back() != '/') {
+          res += '/';
+        }
+        res += entry;
+      }
+    }
+    start = end + 1;
+  }
 
   return res;
 }
@@ -74,7 +134,17 @@ auto read_directory(FileOperation *fs, inode_id_t id,
                     std::list<DirectoryEntry> &list) -> ChfsNullResult {
   
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+
+  auto res = fs->read_file(id);
+  if (res.is_err()) {
+    return ChfsNullResult(res.unwrap_error());
+  }
+
+  auto content = res.unwrap();
+  auto content_str = std::string(content.begin(), content.end());
+  parse_directory(content_str, list);
+  
 
   return KNullOk;
 }
