@@ -51,7 +51,7 @@ TEST(FileSystemTest, WriteLargeFile) {
     ASSERT_TRUE(res.is_ok());
     id_list.push_back(res.unwrap());
   }
-
+  std::cout << "PASS TEST ALLOCATE INODE" << "   in line: " << __LINE__ << std::endl;
   // std::vector<u8> test_file_content(KLargeFileMax);
   for (uint i = 0; i < 10; ++i) {
     // TODO: initialize the test_file_content
@@ -59,8 +59,12 @@ TEST(FileSystemTest, WriteLargeFile) {
       contents[id] = generate_random_string(rng);
 
       auto res = fs.write_file(id, contents[id]);
+      std::cout << "PASS TEST WRITE FILE" << "   in line: " << __LINE__ << std::endl;
       ASSERT_TRUE(res.is_ok());
+
+      std::cout << "PASS TEST WRITE FILE" << "   in line: " << __LINE__ << "   id: " << id << std::endl;
     }
+    std::cout << "PASS TEST WRITE FILE" << "   in line: " << __LINE__ << std::endl;
 
     for (auto id : id_list) {
       auto res = fs.read_file(id);
@@ -104,7 +108,11 @@ TEST(FileSystemTest, SetAttr) {
   std::cout << "third_free_block_num: " << third_free_block_num << std::endl;
 
   { fs.resize(inode, KLargeFileMin).unwrap(); }
+  std::cout << "PASS TEST RESIZE" << "   in line: " << __LINE__ << std::endl;
   auto final_free_block_num = fs.get_free_blocks_num().unwrap();
+  
+  std::cout << "final_free_block_num: " << final_free_block_num << std::endl;
+  std::cout << "second_free_block_num: " << second_free_block_num << std::endl;
   ASSERT_EQ(final_free_block_num, second_free_block_num);
 }
 
