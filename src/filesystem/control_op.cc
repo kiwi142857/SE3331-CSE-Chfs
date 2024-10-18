@@ -59,6 +59,7 @@ auto FileOperation::remove_file(inode_id_t id) -> ChfsNullResult {
   if (inode_res.is_err()) {
     error_code = inode_res.unwrap_error();
     // I know goto is bad, but we have no choice
+    std::cout << "ERROR: " << static_cast<int>(error_code) << "   in line: " << __LINE__ << std::endl;
     goto err_ret;
   }
 
@@ -96,6 +97,8 @@ auto FileOperation::remove_file(inode_id_t id) -> ChfsNullResult {
     auto res = this->inode_manager_->free_inode(id);
     if (res.is_err()) {
       error_code = res.unwrap_error();
+          std::cout << "CONTROL_OP ERROR: " << static_cast<int>(error_code) << "   in line: " << __LINE__ << std::endl;
+
       goto err_ret;
     }
     free_set.push_back(inode_res.unwrap());
@@ -105,6 +108,8 @@ auto FileOperation::remove_file(inode_id_t id) -> ChfsNullResult {
   for (auto bid : free_set) {
     auto res = this->block_allocator_->deallocate(bid);
     if (res.is_err()) {
+          std::cout << "ERROR: " << static_cast<int>(error_code) << "   in line: " << __LINE__ << std::endl;
+
       return res;
     }
   }

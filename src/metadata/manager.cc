@@ -275,6 +275,7 @@ auto InodeManager::free_inode(inode_id_t id) -> ChfsNullResult {
 
   // simple pre-checks
   if (id >= max_inode_supported - 1) {
+    std::cout << "FREE INODE ERROR: " << static_cast<int>(ErrorType::INVALID_ARG) << "   in line: " << __LINE__ << std::endl;
     return ChfsNullResult(ErrorType::INVALID_ARG);
   }
 
@@ -287,18 +288,21 @@ auto InodeManager::free_inode(inode_id_t id) -> ChfsNullResult {
 
   // 1. Clear the inode table entry.
   inode_id_t inode_index = LOGIC_2_RAW(id);
-  auto block_id_res = this->get(inode_index);
+  auto block_id_res = this->get(id);
   if (block_id_res.is_err()) {
+    std::cout << "FREE INODE ERROR: " << static_cast<int>(block_id_res.unwrap_error()) << "   in line: " << __LINE__ << std::endl;
     return ChfsNullResult(block_id_res.unwrap_error());
   }
 
   auto block_id = block_id_res.unwrap();
   if (block_id == KInvalidBlockID) {
+    std::cout << "ERROR: " << static_cast<int>(ErrorType::INVALID_ARG) << "   in line: " << __LINE__ << std::endl;
     return ChfsNullResult(ErrorType::INVALID_ARG);
   }
 
-  auto block_id_res2 = this->set_table(id, KInvalidBlockID);
-  if (block_id_res2.is_err()) {
+  auto block_id_res2 = this->set_table(inode_index, KInvalidBlockID);
+  if (block_id_res2.is_err()) { 
+    std::cout << "ERROR: " << static_cast<int>(block_id_res2.unwrap_error()) << "   in line: " << __LINE__ << std::endl;
     return ChfsNullResult(block_id_res2.unwrap_error());
   }
 
@@ -307,6 +311,7 @@ auto InodeManager::free_inode(inode_id_t id) -> ChfsNullResult {
   auto block_offset = inode_index % (bm->block_size() * KBitsPerByte);
   auto iter_res = BlockIterator::create(bm.get(), block_index, block_index + 1);
   if (iter_res.is_err()) {
+    std::cout << "ERROR: " << static_cast<int>(iter_res.unwrap_error()) << "   in line: " << __LINE__ << std::endl;
     return ChfsNullResult(iter_res.unwrap_error());
   }
   Bitmap(iter_res.unwrap().unsafe_get_value_ptr<u8>(), bm->block_size())

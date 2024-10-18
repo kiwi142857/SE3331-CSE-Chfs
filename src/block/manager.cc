@@ -87,21 +87,20 @@ auto BlockManager::write_block(block_id_t block_id, const u8 *data)
 }
 
 auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
-                                       usize offset, usize len)
-    -> ChfsNullResult {
-  
-  // Make sure the block id is within the range
-  CHFS_ASSERT(block_id < this->block_cnt, "Block id out of range");
+                                       usize offset,
+                                       usize len) -> ChfsNullResult {
+    // check for the correctness of the input parameters
+    if (block_id >= this->block_cnt || data == nullptr ||
+        offset + len > this->block_sz) {
+          std::cout<<"ERROR: " << static_cast<int>(ErrorType::INVALID_ARG) << "   in line: " << __LINE__ << std::endl;
+        return ChfsNullResult(ErrorType::INVALID_ARG);
+    }
 
-  // Make sure the offset and length are within the block size
-  CHFS_ASSERT(offset + len <= this->block_sz, "Offset and length out of range");
-
-  // To write a partial block, we need to calculate the offset
-  // and then write the data to the block.
-  usize block_offset = block_id * this->block_sz;
-  std::memcpy(this->block_data + block_offset + offset, data, len);
-
-  return KNullOk;
+    // calculate offset and write the block
+    u64 true_offset =
+        static_cast<u64>(block_id) * static_cast<u64>(this->block_sz) + offset;
+    memcpy(this->block_data + true_offset, data, len);
+    return KNullOk;
 }
 
 auto BlockManager::read_block(block_id_t block_id, u8 *data) -> ChfsNullResult {

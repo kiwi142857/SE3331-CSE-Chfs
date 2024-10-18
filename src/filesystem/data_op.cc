@@ -29,8 +29,8 @@ auto FileOperation::alloc_inode(InodeType type) -> ChfsResult<inode_id_t> {
   auto inode_res = this->inode_manager_->allocate_inode(type, block_id);
 
   // TODO: For DEBUG
-  std::cout << "Allocated inode's file type: " << static_cast<int>(type)
-            << std::endl;
+  // std::cout << "Allocated inode's file type: " << static_cast<int>(type)
+  //           << std::endl;
   if (inode_res.is_err()) {
     return ChfsResult<inode_id_t>(inode_res.unwrap_error());
   }
