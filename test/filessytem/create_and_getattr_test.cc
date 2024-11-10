@@ -30,6 +30,7 @@ TEST(FileSystemTest, CreateAndGetAttr) {
       ASSERT_TRUE(res.is_ok());
 
       auto type = fs.gettype(res.unwrap());
+      std::cout << "File type: " << static_cast<int>(type.unwrap()) << std::endl;
       ASSERT_TRUE(type.is_ok());
 
       ASSERT_EQ(type.unwrap(), InodeType::FILE);

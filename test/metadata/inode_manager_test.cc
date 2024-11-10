@@ -35,8 +35,10 @@ protected:
 // Test creating a superblock from zero
 TEST_F(InodeManagerTest, InitAndTable) {
   // test inode table
+  std::cout << "Test inode table" << std::endl;
   for (inode_id_t i = 1; i < 64; ++i) {
     inode_manager->set_table(i - 1, i + 73).unwrap();
+    std::cout<<inode_manager->get(i).unwrap()<< ": "<< i+73<<std::endl;
     ASSERT_EQ(inode_manager->get(i).unwrap(), i + 73);
   }
   test_inode_num = inode_manager->get_max_inode_supported();
@@ -58,12 +60,17 @@ TEST_F(InodeManagerTest, Allocation) {
     auto free_block_res = allocator.allocate();
     if (free_block_res.is_err()) {
       ASSERT_EQ(prev_id, test_block_cnt - 1);
+      std::cout << "--ALLOCATE FREE BLOCK FAIL--" << std::endl;
       break;
     }
     auto free_block = free_block_res.unwrap();
     auto inode_id =
         inode_manager1.allocate_inode(InodeType::Directory, free_block)
             .unwrap();
+    // check the file type of inode
+    auto inode_type = inode_manager1.get_type(inode_id).unwrap();
+    ASSERT_EQ(inode_type, InodeType::Directory);
+    std::cout << "TYPE PASS" << std::endl;
     ASSERT_EQ(inode_id, i + 1);
     prev_id = free_block;
   }
