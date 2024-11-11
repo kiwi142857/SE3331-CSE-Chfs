@@ -3,6 +3,9 @@
 
 namespace chfs {
 
+// TODO: this is a tmp global version id
+version_t global_version_id = 0;
+
 auto DataServer::initialize(std::string const &data_path) {
   /**
    * At first check whether the file exists or not.
@@ -82,9 +85,11 @@ auto DataServer::read_data(block_id_t block_id, usize offset, usize len,
   delete[] buf;
 
   // check the version of the block
+  // TODO: implement the version check here
+  // We'll update the logic here to check the version of the block
+  // now we will direct return the data
+  return data;
 
-
-  return {};
 }
 
 // {Your code here}
@@ -93,7 +98,21 @@ auto DataServer::write_data(block_id_t block_id, usize offset,
   // TODO: Implement this function.
   // UNIMPLEMENTED();
 
-  return false;
+  // 2. check the version of the block
+  // 3. write the data to the block
+  // 4. return true if success
+
+  // TODO: implement the version check here
+  // we'll update the logic of version check here
+
+  // we call write_partial_block to write the data
+  auto res = block_allocator_->bm->write_partial_block(block_id, buffer.data(), offset, buffer.size());
+  if (res.is_err()) {
+    return false;
+  }
+  return true;
+
+  // return false;
 }
 
 // {Your code here}
@@ -101,7 +120,18 @@ auto DataServer::alloc_block() -> std::pair<block_id_t, version_t> {
   // TODO: Implement this function.
   // UNIMPLEMENTED();
 
-  return {};
+  // TODO: implement the version check here
+  // we'll update the logic of version check here
+  global_version_id ++;
+
+  // we call allocate to allocate a block
+  auto res = block_allocator_->allocate();
+  if (res.is_err()) {
+    return {};
+  }
+  DEBUG_LOG("Allocated block id: " << res.unwrap());
+  return {res.unwrap(), global_version_id};
+
 }
 
 // {Your code here}
@@ -109,6 +139,16 @@ auto DataServer::free_block(block_id_t block_id) -> bool {
   // TODO: Implement this function.
   // UNIMPLEMENTED();
 
-  return false;
+  // TODO: implement the version check here
+  // we'll update the logic of version check here
+  global_version_id ++;
+
+  // we call deallocate to deallocate a block
+  auto res = block_allocator_->deallocate(block_id);
+  if (res.is_err()) {
+    return false;
+  }
+  return true;
+
 }
 } // namespace chfs
