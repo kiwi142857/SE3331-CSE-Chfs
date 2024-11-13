@@ -2,6 +2,7 @@
 #include <sstream>
 
 #include "filesystem/directory_op.h"
+#include "common/util.h"
 
 namespace chfs {
 
@@ -59,7 +60,6 @@ void parse_directory(std::string &src, std::list<DirectoryEntry> &list) {
   // UNIMPLEMENTED();
 
   // e.g., "name0:inode0/name1:inode1/ ..."
-  std::cout << "src: " << src << "   " << __LINE__ << std::endl;
   if(src.size() == 0) {
     return;
   }
@@ -70,18 +70,21 @@ void parse_directory(std::string &src, std::list<DirectoryEntry> &list) {
     if (end == std::string::npos) {
       end = src.size();
     }
-    std::cout << "start: " << start << "   end: " << end << "  " << __LINE__ << std::endl;
+    DEBUG_LOG("start: " << start << " end: " << end);
     if(start >= end) {
       break;
     }
     auto entry = src.substr(start, end - start);
     std::string::size_type pos = entry.find(':');
     if (pos != std::string::npos) {
-      std::cout<< "entry: " << entry << "   " << __LINE__ << std::endl;
+      // std::cout<< "entry: " << entry << "   " << __LINE__ << std::endl;
+      DEBUG_LOG("entry: " << entry);
       auto name = entry.substr(0, pos);
-      std::cout << "name: " << name << "   " << __LINE__ << std::endl;
+      // std::cout << "name: " << name << "   " << __LINE__ << std::endl;
+      DEBUG_LOG("name: " << name);
       auto inode = entry.substr(pos + 1);
-      std::cout << "inode: " << inode << "   " << __LINE__ << std::endl;
+      // std::cout << "inode: " << inode << "   " << __LINE__ << std::endl;
+      DEBUG_LOG("inode: " << inode);
       list.push_back(DirectoryEntry{name, string_to_inode_id(inode)});
     }
     start = end + 1;
@@ -165,6 +168,7 @@ auto FileOperation::lookup(inode_id_t id, const char *name)
 
   for (const auto &entry : entries) {
     if (entry.name == name) {
+      DEBUG_LOG("Found: " << name);
       return ChfsResult<inode_id_t>(entry.id);
     }
   }
@@ -188,6 +192,7 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
     return ChfsResult<inode_id_t>(res.unwrap_error());
   }
   if (res.is_ok()) {
+    DEBUG_LOG("Already exist\t" <<  name);
     return ChfsResult<inode_id_t>(ErrorType::AlreadyExist);
   }
 
@@ -196,6 +201,7 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
     return ChfsResult<inode_id_t>(inode_res.unwrap_error());
   }
   auto inode_id = inode_res.unwrap();
+  DEBUG_LOG("Allocated inode: " << inode_id);
 
   auto entries = std::list<DirectoryEntry>();
   auto read_res = read_directory(this, id, entries);

@@ -122,34 +122,109 @@ MetadataServer::MetadataServer(std::string const &address, u16 port,
 // {Your code here}
 auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
     -> inode_id_t {
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
 
-  return 0;
+  // 1. Allocate an inode
+  // TODO: Implement this function.
+  //UNIMPLEMENTED();
+
+  //TODO: if we don't enable log and transaction feature
+    if(type == DirectoryType){
+      auto mkdir_res = operation_->mkdir(parent, name.data());
+      if(mkdir_res.is_err()){
+        return KInvalidInodeID;
+      }
+      DEBUG_LOG("mkdir success" << mkdir_res.unwrap());
+      return mkdir_res.unwrap();
+    }
+    else if(type == RegularFileType){
+      auto mkfile_res = operation_->mkfile(parent, name.data());
+      if(mkfile_res.is_err()){
+        DEBUG_LOG("mkfile failed");
+        return KInvalidInodeID;
+      }
+      DEBUG_LOG("mkfile success");
+      return mkfile_res.unwrap();
+    }
+    else{
+      return KInvalidInodeID;
+    }
+  
+  return KInvalidInodeID;
 }
 
 // {Your code here}
 auto MetadataServer::unlink(inode_id_t parent, const std::string &name)
     -> bool {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
 
-  return false;
+  // TODO: if we don't enable log and transaction feature
+
+  auto lookup_result = lookup(parent, name);
+  if (lookup_result == KInvalidInodeID) {
+    return false;
+  }
+  auto remove_res = operation_->unlink(parent, name.data());
+  if (remove_res.is_err()) {
+    return false;
+  }
+  return true;
 }
 
 // {Your code here}
 auto MetadataServer::lookup(inode_id_t parent, const std::string &name)
     -> inode_id_t {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
 
-  return 0;
+  auto lookup_res = operation_->lookup(parent, name.data());
+  if (lookup_res.is_err()) {
+    return KInvalidInodeID;
+  }
+  return lookup_res.unwrap();
 }
 
 // {Your code here}
 auto MetadataServer::get_block_map(inode_id_t id) -> std::vector<BlockInfo> {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
+
+  // 1. Get the inode
+  // 2. Return the block map
+
+  // get the inode and its corresponding block, we will return the block info
+  std::vector<BlockInfo> block_infos;
+  auto get_res = operation_->inode_manager_->get(id);
+  if(get_res.is_err()){
+    return block_infos;
+  }
+  auto inode_block_id = get_res.unwrap();
+  if(inode_block_id == KInvalidBlockID){
+    return block_infos;
+  }
+  std::vector<u8> file_inode(operation_->block_manager_->block_size());
+  auto read_res = operation_->block_manager_->read_block(inode_block_id, file_inode.data());
+  if(read_res.is_err()){
+    return block_infos;
+  }
+  auto inode_ptr = reinterpret_cast<Inode *>(file_inode.data());
+  for(uint i = 0;i < inode_ptr->get_nblocks();i = i + 2){
+    if(inode_ptr->blocks[i] == KInvalidBlockID){
+      break;
+    }
+    // TODO: we need to get the version of the block
+    // block_infos.push_back(BlockInfo(inode_ptr->blocks[i], inode_ptr->blocks[i + 1], 0));
+    // We call the read_data to the macid to get block[1] to get the version of the block 
+    auto mac_id = inode_ptr->blocks[i + 1];
+    auto cli = clients_[mac_id];
+    auto response = cli->call("read_data", 0, inode_ptr->blocks[i] * sizeof(version_t), sizeof(version_t), 0);
+    if(response.is_err()){
+      return block_infos;
+    }
+    auto version = response.unwrap()->as<version_t>();
+    
+    block_infos.push_back(BlockInfo(inode_ptr->blocks[i], inode_ptr->blocks[i + 1], version));
+  }
 
   return {};
 }
@@ -157,18 +232,148 @@ auto MetadataServer::get_block_map(inode_id_t id) -> std::vector<BlockInfo> {
 // {Your code here}
 auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
 
-  return {};
+  // 1. Allocate a block
+  // 2. Record the block in the inode
+  // 3. Return the block info
+
+  // first, we will check whether the inode block have enough space to store a new block info pair
+  const auto BLOCK_SIZE = operation_->block_manager_->block_size();
+  usize old_block_num = 0;
+  // u64 original_file_sz = 0;
+
+  // 1. read the inode
+  std::vector<u8> file_inode(BLOCK_SIZE);
+  auto inode_ptr = reinterpret_cast<Inode *>(file_inode.data());
+  auto get_res = operation_->inode_manager_->get(id);
+  auto inode_block_id = get_res.unwrap();
+  if(inode_block_id == KInvalidBlockID){
+    return BlockInfo(KInvalidBlockID, 0, 0);
+  }
+  auto read_block_res = operation_->block_manager_->read_block(inode_block_id, file_inode.data());
+  if(read_block_res.is_err()){
+    return BlockInfo(KInvalidBlockID, 0, 0);
+  }
+  // 2. make sure that we have space to allocate a new block for this file
+  // it seems like it just only alloc not write, so this operation won't change attr
+  // there are two methods to get old_block_num
+  // (1) by file size
+  // original_file_sz = inode_ptr->get_size();
+  // old_block_num = (original_file_sz % BLOCK_SIZE) ? (original_file_sz / BLOCK_SIZE + 1) : (original_file_sz / BLOCK_SIZE);
+  // (2) by first Invalid slot
+  old_block_num = 0;
+  for(uint i = 0;i < inode_ptr->get_nblocks();i = i + 2){
+    if(inode_ptr->blocks[i] == KInvalidBlockID){
+      old_block_num = i / 2;
+      break;
+    }
+  }
+
+  // check after alloc the Inode block is whether full or not
+  if(2 * (old_block_num + 1) > inode_ptr->get_nblocks()){
+    return BlockInfo(KInvalidBlockID, 0, 0);
+  }
+  auto idx = 2 * old_block_num;
+  // prepare work finish
+
+  // second, we randomly alloc a block from dataservers
+  std::vector<mac_id_t> mac_ids;
+  for (const auto& pair : clients_) {
+    mac_ids.push_back(pair.first);
+  }
+  //! notice: this rand function is not as usually closed on the left, open on the right([a, b)), this is a both closed [a,b]
+  auto rand_num = generator.rand(0, mac_ids.size() - 1);
+  mac_id_t target_mac_id = mac_ids[rand_num];
+  auto it = clients_.find(target_mac_id);
+  if(it == clients_.end()){
+    return BlockInfo(KInvalidBlockID, 0, 0);
+  }
+  auto target_mac = it->second;
+  auto response = target_mac->call("alloc_block");
+  if(response.is_err()){
+    return BlockInfo(KInvalidBlockID, target_mac_id, 0);
+  }
+  auto response_pair = response.unwrap()->as<std::pair<chfs::block_id_t, chfs::version_t>>();
+  auto block_id = response_pair.first;
+  auto version_id = response_pair.second;
+  
+  // third, update the info in metadata_server locally
+  inode_ptr->set_block_direct(idx, block_id);
+  inode_ptr->set_block_direct(idx + 1, target_mac_id);
+  
+  // maybe todo: update the attr of inode
+
+  auto write_res = operation_->block_manager_->write_block(inode_block_id, file_inode.data());
+  if(write_res.is_err()){
+    return BlockInfo(KInvalidBlockID, 0, 0);
+  }
+  return BlockInfo(block_id, target_mac_id, version_id);
 }
 
 // {Your code here}
 auto MetadataServer::free_block(inode_id_t id, block_id_t block_id,
                                 mac_id_t machine_id) -> bool {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
 
-  return false;
+  // 1. Remove the block from the inode
+  // 2. Send a free block request to the data server
+  // 3. Return the result
+
+  // first, we will check whether the block is in the inode block or not, also we will check if the mac id is correct and get the index
+  const auto BLOCK_SIZE = operation_->block_manager_->block_size();
+
+  // 1. read the inode
+  std::vector<u8> file_inode(BLOCK_SIZE);
+  auto inode_ptr = reinterpret_cast<Inode *>(file_inode.data());
+  auto get_res = operation_->inode_manager_->get(id);
+  auto inode_block_id = get_res.unwrap();
+  if(inode_block_id == KInvalidBlockID){
+    return false;
+  }
+  auto read_block_res = operation_->block_manager_->read_block(inode_block_id * 2, file_inode.data());
+  auto read_mac_res = operation_->block_manager_->read_block(inode_block_id * 2 + 1, file_inode.data());
+  if(read_block_res.is_err()){
+    return false;
+  }
+  if(read_mac_res.is_err()){
+    return false;
+  }
+
+  // 2. send a free block request to the data server
+  auto it = clients_.find(machine_id);
+  if(it == clients_.end()){
+    return false;
+  }
+  auto target_mac = it->second;
+  auto response = target_mac->call("free_block", id, block_id);
+  if(response.is_err()){
+    return false;
+  }
+  auto response_bool = response.unwrap()->as<bool>();
+  if(!response_bool){
+    return false;
+  }
+
+  // 3. remove the block from the inode
+  usize idx = 0;
+  for(;idx < inode_ptr->get_nblocks();idx = idx + 2){
+    if(inode_ptr->blocks[idx] == block_id){
+      break;
+    }
+  }
+  if(idx == inode_ptr->get_nblocks()){
+    return false;
+  }
+  inode_ptr->set_block_direct(idx, KInvalidBlockID);
+  inode_ptr->set_block_direct(idx + 1, KInvalidBlockID);
+  auto write_res = operation_->block_manager_->write_block(inode_block_id, file_inode.data());
+  if(write_res.is_err()){
+    return false;
+  }
+  return true;  
+
 }
 
 // {Your code here}
@@ -184,9 +389,27 @@ auto MetadataServer::readdir(inode_id_t node)
 auto MetadataServer::get_type_attr(inode_id_t id)
     -> std::tuple<u64, u64, u64, u64, u8> {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  // UNIMPLEMENTED();
 
-  return {};
+  // 1. Get the inode
+  // 2. Return the type and attribute
+
+  auto get_res = operation_->inode_manager_->get(id);
+  if(get_res.is_err()){
+    return std::make_tuple(0, 0, 0, 0, 0);
+  }
+  auto inode_block_id = get_res.unwrap();
+  if(inode_block_id == KInvalidBlockID){
+    return std::make_tuple(0, 0, 0, 0, 0);
+  }
+  std::vector<u8> file_inode(operation_->block_manager_->block_size());
+  auto read_res = operation_->block_manager_->read_block(inode_block_id, file_inode.data());
+  if(read_res.is_err()){
+    return std::make_tuple(0, 0, 0, 0, 0);
+  }
+  auto inode_ptr = reinterpret_cast<Inode *>(file_inode.data());
+  FileAttr attr = inode_ptr->get_attr();
+  return std::make_tuple(static_cast<u8>(inode_ptr->get_type()),inode_ptr->get_size(), attr.atime, attr.mtime, attr.ctime);
 }
 
 auto MetadataServer::reg_server(const std::string &address, u16 port,
