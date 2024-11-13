@@ -75,6 +75,24 @@ auto DataServer::read_data(block_id_t block_id, usize offset, usize len,
   // 2. check the version of the block
   // 3. read the data from the block
   // 4. return the data
+
+  // check version here
+  // we'll read the version info in block[1], so we need to read the version info from block[1]
+  // the data in block[1] is the version id, the k*sizeof(version_t) is the version id
+  auto buf_version = new u8[block_allocator_->bm->block_size()];
+  auto res_version = block_allocator_->bm->read_block(1, buf_version);
+  if (res_version.is_err()) {
+    return {};
+  }
+  version_t block_version = *reinterpret_cast<version_t*>(buf_version + block_id * sizeof(version_t));
+  delete[] buf_version;
+
+  // if the version is not equal to the global_version_id, we return an empty vector
+  if (block_version != version) {
+    DEBUG_LOG("Version mismatch: " << block_version << " vs " << version);
+    return {};
+  }
+
   auto buf = new u8[block_allocator_->bm->block_size()];
   auto res = block_allocator_->bm->read_block(block_id, buf);
   if (res.is_err()) {
@@ -122,16 +140,25 @@ auto DataServer::alloc_block() -> std::pair<block_id_t, version_t> {
 
   // TODO: implement the version check here
   // we'll update the logic of version check here
-  global_version_id ++;
-
+  
   // we call allocate to allocate a block
   auto res = block_allocator_->allocate();
   if (res.is_err()) {
     return {};
   }
+
+  // update the version id, we store the version info in block[1], so we need to update the version id, we keep the version id in the global_version_id
+  // the data in block[1] is the version id, the k*sizeof(version_t) is the version id
+  global_version_id ++;
+  // write the version id to the block[1]
+  block_id_t block_id = res.unwrap();
+  auto res_write = block_allocator_->bm->write_partial_block(1, reinterpret_cast<const u8*>(&global_version_id), block_id * sizeof(version_t), sizeof(version_t));
+  if(res_write.is_err()){
+    return {};
+  }
+
   DEBUG_LOG("Allocated block id: " << res.unwrap());
   return {res.unwrap(), global_version_id};
-
 }
 
 // {Your code here}
@@ -148,6 +175,14 @@ auto DataServer::free_block(block_id_t block_id) -> bool {
   if (res.is_err()) {
     return false;
   }
+
+  // update the version id, we store the version info in block[1], so we need to update the version id, we keep the version id in the global_version_id
+  // the data in block[1] is the version id, the k*sizeof(version_t) is the version id
+  auto res_write = block_allocator_->bm->write_partial_block(1, reinterpret_cast<const u8*>(&global_version_id), block_id * sizeof(version_t), sizeof(version_t));
+  if(res_write.is_err()){
+    return false;
+  }
+
   return true;
 
 }
