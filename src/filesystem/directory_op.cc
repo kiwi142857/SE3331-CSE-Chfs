@@ -295,20 +295,32 @@ auto FileOperation::remove_metaserver_inode(inode_id_t parent, const char *name)
 
     // update the inode bitmap
     auto inode_bitmap_res = inode_manager_->free_inode(inode_id);
+    // // TODO: for debug, we call allocate_inode to get the inode_id to examine the inode bitmap
+    // auto inode_res2 = inode_manager_->allocate_inode(InodeType::FILE, 0);
+    // if (inode_res2.is_err()) {
+    //     DEBUG_LOG("ERROR: " << static_cast<int>(inode_res2.unwrap_error()) << "   in line: " << __LINE__);
+    //     return ChfsNullResult(inode_res2.unwrap_error());
+    // }
+    // auto inode_id2 = inode_res2.unwrap();
+    // // we check if the inode_id is the same as the previous one
+    // if (inode_id2 != inode_id) {
+    //     DEBUG_LOG("ERROR: " << static_cast<int>(ErrorType::INVALID_ARG) << "   in line: " << __LINE__);
+    //     return ChfsNullResult(ErrorType::INVALID_ARG);
+    // }
+    // free the inode
+    // auto inode_bitmap_res2 = inode_manager_->free_inode(inode_id2);
+    // if (inode_bitmap_res2.is_err()) {
+    //     DEBUG_LOG("ERROR: " << static_cast<int>(inode_bitmap_res2.unwrap_error()) << "   in line: " << __LINE__);
+    //     return ChfsNullResult(inode_bitmap_res2.unwrap_error());
+    // }
+
     if (inode_bitmap_res.is_err()) {
         return ChfsNullResult(inode_bitmap_res.unwrap_error());
     }
 
-    // now free the block
-    auto res = this->inode_manager_->free_inode(inode_id);
-    if (res.is_err()) {
-        DEBUG_LOG("ERROR: " << static_cast<int>(res.unwrap_error()) << "   in line: " << __LINE__);
-        return res;
-    }
-
     auto deallocate_res = this->block_allocator_->deallocate(inode_res.unwrap());
     if (deallocate_res.is_err()) {
-        return ChfsNullResult(res.unwrap_error());
+        return ChfsNullResult(deallocate_res.unwrap_error());
     }
 
     // 2. Remove the entry from the directory.
