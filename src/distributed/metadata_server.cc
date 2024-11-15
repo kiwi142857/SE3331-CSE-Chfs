@@ -32,6 +32,7 @@ inline auto MetadataServer::init_fs(const std::string &data_path)
 
     auto block_manager = std::shared_ptr<BlockManager>(nullptr);
     if (is_log_enabled_) {
+        DEBUG_LOG("MetadataServer initializing... from " << data_path);
         block_manager = std::make_shared<BlockManager>(data_path, KDefaultBlockCnt, true);
     } else {
         block_manager = std::make_shared<BlockManager>(data_path, KDefaultBlockCnt);
@@ -115,6 +116,7 @@ auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
     if (type == DirectoryType) {
         auto mkdir_res = operation_->mkdir(parent, name.data());
         if (mkdir_res.is_err()) {
+            DEBUG_LOG("mkdir failed");
             return KInvalidInodeID;
         }
         DEBUG_LOG("mkdir success" << mkdir_res.unwrap());
@@ -125,6 +127,8 @@ auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
             DEBUG_LOG("mkfile failed");
             return KInvalidInodeID;
         }
+        // We print the file created here with the filename and the inode id
+        DEBUG_LOG(name << " created with inode id: " << mkfile_res.unwrap());
         DEBUG_LOG("mkfile success");
         return mkfile_res.unwrap();
     } else {
@@ -152,7 +156,25 @@ auto MetadataServer::unlink(inode_id_t parent, const std::string &name) -> bool
     // 1. Call data server to free the block
     // 2. Call ‘remove_metaserver_inode’ to remove the inode from the metadata server
 
-    // 1. we will
+    // 1. we will call the free_block to free the block
+    auto block_map = get_block_map(lookup_result);
+    for (const auto &block_info : block_map) {
+        auto cli = clients_[std::get<1>(block_info)];
+        auto response = cli->call("free_block", std::get<0>(block_info));
+        if (response.is_err()) {
+            return false;
+        }
+        if (!response.unwrap()->as<bool>()) {
+            return false;
+        }
+    }
+
+    // 2. we will call the remove_metaserver_inode to remove the inode from the metadata server
+    auto remove_res = operation_->remove_metaserver_inode(parent, name.data());
+    if (remove_res.is_err()) {
+        return false;
+    }
+
     return true;
 }
 
@@ -203,15 +225,19 @@ auto MetadataServer::get_block_map(inode_id_t id) -> std::vector<BlockInfo>
         // We call the read_data to the macid to get block[1] to get the version of the block
         auto mac_id = inode_ptr->blocks[i + 1];
         auto cli = clients_[mac_id];
-        auto response = cli->call("read_data", 0, inode_ptr->blocks[i] * sizeof(version_t), sizeof(version_t), 0);
+        auto response = cli->call("read_data", 1, inode_ptr->blocks[i] * sizeof(version_t), sizeof(version_t), 0);
         if (response.is_err()) {
             return block_infos;
         }
-        auto version = response.unwrap()->as<version_t>();
 
-        block_infos.push_back(BlockInfo(inode_ptr->blocks[i], inode_ptr->blocks[i + 1], version));
+        auto obj_handle = response.unwrap();
+        auto response_vec = response.unwrap()->as<std::vector<u8>>();
+        auto version_ptr = reinterpret_cast<version_t *>(response_vec.data());
+        //...fetch version finish...//
+        version_t version_id = *version_ptr;
+        block_infos.push_back(BlockInfo(inode_ptr->blocks[i], mac_id, version_id));
     }
-
+    return block_infos;
     return {};
 }
 

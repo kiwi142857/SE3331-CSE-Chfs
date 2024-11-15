@@ -150,6 +150,7 @@ auto read_directory(FileOperation *fs, inode_id_t id, std::list<DirectoryEntry> 
 
     auto content = res.unwrap();
     auto content_str = std::string(content.begin(), content.end());
+    DEBUG_LOG("content: " << content_str);
     parse_directory(content_str, list);
 
     return KNullOk;
@@ -196,8 +197,7 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type) -
     }
     if (res.is_ok()) {
         DEBUG_LOG("Already exist\t" << name);
-        // return the existing inode id
-        return ChfsResult<inode_id_t>(res.unwrap());
+        return ChfsResult<inode_id_t>(ErrorType::AlreadyExist);
     }
 
     auto inode_res = alloc_inode(type);
@@ -262,7 +262,6 @@ auto FileOperation::unlink(inode_id_t parent, const char *name) -> ChfsNullResul
 
 auto FileOperation::remove_metaserver_inode(inode_id_t parent, const char *name) -> ChfsNullResult
 {
-
     /**
      * Remove the inode @inode_id from the filesystem.
      * Free the inode's blocks.
@@ -284,20 +283,20 @@ auto FileOperation::remove_metaserver_inode(inode_id_t parent, const char *name)
     }
     auto inode_id = lookup_result.unwrap();
 
-    // update the inode bitmap
-    auto inode_bitmap_res = inode_manager_->free_inode(inode_id);
-    if (inode_bitmap_res.is_err()) {
-        return ChfsNullResult(inode_bitmap_res.unwrap_error());
-    }
-
     const auto block_size = this->block_manager_->block_size();
-    std::vector<u8> inode(block_size);
 
+    std::vector<u8> inode(block_size);
     auto inode_res = this->inode_manager_->read_inode(inode_id, inode);
     if (inode_res.is_err()) {
         // std::cout << "ERROR: " << static_cast<int>(error_code) << "   in line: " << __LINE__ << std::endl;
         DEBUG_LOG("ERROR: " << static_cast<int>(inode_res.unwrap_error()) << "   in line: " << __LINE__);
         return ChfsNullResult(inode_res.unwrap_error());
+    }
+
+    // update the inode bitmap
+    auto inode_bitmap_res = inode_manager_->free_inode(inode_id);
+    if (inode_bitmap_res.is_err()) {
+        return ChfsNullResult(inode_bitmap_res.unwrap_error());
     }
 
     // now free the block
