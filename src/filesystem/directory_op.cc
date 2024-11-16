@@ -74,21 +74,14 @@ void parse_directory(std::string &src, std::list<DirectoryEntry> &list)
         if (end == std::string::npos) {
             end = src.size();
         }
-        DEBUG_LOG("start: " << start << " end: " << end);
         if (start >= end) {
             break;
         }
         auto entry = src.substr(start, end - start);
         std::string::size_type pos = entry.find(':');
         if (pos != std::string::npos) {
-            // std::cout<< "entry: " << entry << "   " << __LINE__ << std::endl;
-            DEBUG_LOG("entry: " << entry);
             auto name = entry.substr(0, pos);
-            // std::cout << "name: " << name << "   " << __LINE__ << std::endl;
-            DEBUG_LOG("name: " << name);
             auto inode = entry.substr(pos + 1);
-            // std::cout << "inode: " << inode << "   " << __LINE__ << std::endl;
-            DEBUG_LOG("inode: " << inode);
             list.push_back(DirectoryEntry{name, string_to_inode_id(inode)});
         }
         start = end + 1;
@@ -145,13 +138,17 @@ auto read_directory(FileOperation *fs, inode_id_t id, std::list<DirectoryEntry> 
 
     auto res = fs->read_file(id);
     if (res.is_err()) {
+        DEBUG_LOG("ERROR: " << static_cast<int>(res.unwrap_error()) << __LINE__ << "  in" << __func__);
         return ChfsNullResult(res.unwrap_error());
     }
 
     auto content = res.unwrap();
+
     auto content_str = std::string(content.begin(), content.end());
     DEBUG_LOG("content: " << content_str);
     parse_directory(content_str, list);
+
+    DEBUG_LOG("list size: " << list.size());
 
     return KNullOk;
 }

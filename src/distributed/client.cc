@@ -69,15 +69,20 @@ auto ChfsClient::lookup(inode_id_t parent, const std::string &name) -> ChfsResul
 {
     // TODO: Implement this function.
     // UNIMPLEMENTED();
-
+    DEBUG_LOG("call Look UP here");
     auto res = metadata_server_->call("lookup", parent, name);
     if (res.is_err()) {
+        DEBUG_LOG("lookup error");
         return ChfsResult<inode_id_t>(res.unwrap_error());
     }
+    DEBUG_LOG("lookup step1");
     auto inode_id = res.unwrap()->as<inode_id_t>();
+    DEBUG_LOG("lookup step2");
     if (inode_id == KInvalidInodeID) {
-        return ChfsResult<inode_id_t>(ErrorType::INVALID);
+        DEBUG_LOG("lookup invalid inode id");
+        return ChfsResult<inode_id_t>(ErrorType::NotExist);
     }
+    DEBUG_LOG("lookup step3, inode_id: " << inode_id);
 
     return ChfsResult<inode_id_t>(inode_id);
 }

@@ -186,10 +186,13 @@ auto MetadataServer::lookup(inode_id_t parent, const std::string &name) -> inode
     // TODO: Implement this function.
     // UNIMPLEMENTED();
 
+    DEBUG_LOG("lookup: " << name);
     auto lookup_res = operation_->lookup(parent, name.data());
     if (lookup_res.is_err()) {
+        DEBUG_LOG("lookup failed");
         return KInvalidInodeID;
     }
+    DEBUG_LOG("lookup success: " << lookup_res.unwrap());
     return lookup_res.unwrap();
 }
 
@@ -460,8 +463,8 @@ auto MetadataServer::get_type_attr(inode_id_t id) -> std::tuple<u64, u64, u64, u
     }
     auto inode_ptr = reinterpret_cast<Inode *>(file_inode.data());
     FileAttr attr = inode_ptr->get_attr();
-    return std::make_tuple(static_cast<u8>(inode_ptr->get_type()), inode_ptr->get_size(), attr.atime, attr.mtime,
-                           attr.ctime);
+    return std::make_tuple(inode_ptr->get_size(), attr.atime, attr.mtime, attr.ctime,
+                           static_cast<u8>(inode_ptr->get_type()));
 }
 
 auto MetadataServer::reg_server(const std::string &address, u16 port, bool reliable) -> bool
