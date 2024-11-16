@@ -19,33 +19,35 @@
 #include <map>
 #include <random>
 
-#define DEBUG
-
 #ifdef DEBUG
-  #define DEBUG_LOG(x) std::cout << x << std::endl
+#define DEBUG_LOG(x) std::cout << x << std::endl
 #else
-  #define DEBUG_LOG(x)
+#define DEBUG_LOG(x)
 #endif
 
-namespace chfs {
+namespace chfs
+{
 
 /**
  * A simple random number generator
  */
-class RandomNumberGenerator {
-public:
-  RandomNumberGenerator() {
-    std::random_device rd;
-    seed.seed(rd());
-  }
+class RandomNumberGenerator
+{
+  public:
+    RandomNumberGenerator()
+    {
+        std::random_device rd;
+        seed.seed(rd());
+    }
 
-  auto rand(u32 min, u32 max) -> u32 {
-    std::uniform_int_distribution<u32> dist(min, max);
-    return dist(seed);
-  }
+    auto rand(u32 min, u32 max) -> u32
+    {
+        std::uniform_int_distribution<u32> dist(min, max);
+        return dist(seed);
+    }
 
-private:
-  std::mt19937_64 seed;
+  private:
+    std::mt19937_64 seed;
 };
 
 /**
@@ -53,27 +55,27 @@ private:
  * types not supported by `msgpack`.
  */
 // Serialize an `object` into bytes
-template <typename T>
-auto serialize_object(T const &object) -> std::vector<u8> {
-  auto buffer = std::make_shared<clmdep_msgpack::sbuffer>();
-  clmdep_msgpack::pack(*buffer, object);
+template <typename T> auto serialize_object(T const &object) -> std::vector<u8>
+{
+    auto buffer = std::make_shared<clmdep_msgpack::sbuffer>();
+    clmdep_msgpack::pack(*buffer, object);
 
-  std::vector<u8> bytes(buffer->data(), buffer->data() + buffer->size());
-  return bytes;
+    std::vector<u8> bytes(buffer->data(), buffer->data() + buffer->size());
+    return bytes;
 }
 
 // Deserialize bytes to an `object`
-template <typename T>
-auto deserialize_object(std::vector<u8> const &bytes) -> T {
-  auto oh = clmdep_msgpack::unpack(reinterpret_cast<char const *>(bytes.data()),
-                                   bytes.size());
-  return oh.get().as<T>();
+template <typename T> auto deserialize_object(std::vector<u8> const &bytes) -> T
+{
+    auto oh = clmdep_msgpack::unpack(reinterpret_cast<char const *>(bytes.data()), bytes.size());
+    return oh.get().as<T>();
 }
 
 // Check whether a file exists or not
-inline auto is_file_exist(std::string const &name) -> bool {
-  std::ifstream file(name);
-  return file.good();
+inline auto is_file_exist(std::string const &name) -> bool
+{
+    std::ifstream file(name);
+    return file.good();
 }
 
 /**
@@ -86,22 +88,20 @@ inline auto is_file_exist(std::string const &name) -> bool {
  * @return: A tuple of first, last block index and others for dispatching
  * block requests.
  */
-inline auto dispatch_request(usize offset, usize size)
-    -> std::tuple<usize, usize, usize, usize> {
-  // First calculate the first and last block index
-  auto first_block_index = ROUND_DOWN(offset, DiskBlockSize) / DiskBlockSize;
-  auto last_block_index =
-      ROUND_DOWN(offset + size, DiskBlockSize) / DiskBlockSize;
+inline auto dispatch_request(usize offset, usize size) -> std::tuple<usize, usize, usize, usize>
+{
+    // First calculate the first and last block index
+    auto first_block_index = ROUND_DOWN(offset, DiskBlockSize) / DiskBlockSize;
+    auto last_block_index = ROUND_DOWN(offset + size, DiskBlockSize) / DiskBlockSize;
 
-  auto first_block_offset = offset - first_block_index * DiskBlockSize;
-  auto last_block_size = offset + size - last_block_index * DiskBlockSize;
+    auto first_block_offset = offset - first_block_index * DiskBlockSize;
+    auto last_block_size = offset + size - last_block_index * DiskBlockSize;
 
-  if (last_block_size == 0) {
-    last_block_index -= 1;
-    last_block_size = DiskBlockSize;
-  }
-  return std::make_tuple(first_block_index, last_block_index,
-                         first_block_offset, last_block_size);
+    if (last_block_size == 0) {
+        last_block_index -= 1;
+        last_block_size = DiskBlockSize;
+    }
+    return std::make_tuple(first_block_index, last_block_index, first_block_offset, last_block_size);
 }
 
 } // namespace chfs

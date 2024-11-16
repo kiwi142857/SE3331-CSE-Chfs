@@ -29,8 +29,6 @@ auto DataServer::initialize(std::string const &data_path)
             throw std::runtime_error("Failed to allocate the first block");
         }
         // print the id of the first block
-        block_id_t version_block_id = res.unwrap();
-        DEBUG_LOG("Version block id: " << version_block_id);
     }
 
     // Initialize the RPC server and bind all handlers
