@@ -186,7 +186,6 @@ auto MetadataServer::lookup(inode_id_t parent, const std::string &name) -> inode
     // TODO: Implement this function.
     // UNIMPLEMENTED();
 
-    DEBUG_LOG("lookup: " << name);
     auto lookup_res = operation_->lookup(parent, name.data());
     if (lookup_res.is_err()) {
         DEBUG_LOG("lookup failed");

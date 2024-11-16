@@ -70,12 +70,15 @@ auto DataServer::read_data(block_id_t block_id, usize offset, usize len, version
     // 3. read the data from the block
     // 4. return the data
 
+    DEBUG_LOG("Read data from block id: " << block_id << " offset: " << offset << " len: " << len);
+
     // check version here
     // we'll read the version info in block[1], so we need to read the version info from block[1]
     // the data in block[1] is the version id, the k*sizeof(version_t) is the version id
     auto buf_version = new u8[block_allocator_->bm->block_size()];
     auto res_version = block_allocator_->bm->read_block(1, buf_version);
     if (res_version.is_err()) {
+        ERROR_LOG("Failed to read block: " << 1);
         return {};
     }
     version_t block_version = *reinterpret_cast<version_t *>(buf_version + block_id * sizeof(version_t));
@@ -90,10 +93,18 @@ auto DataServer::read_data(block_id_t block_id, usize offset, usize len, version
     auto buf = new u8[block_allocator_->bm->block_size()];
     auto res = block_allocator_->bm->read_block(block_id, buf);
     if (res.is_err()) {
+        ERROR_LOG("Failed to read block: " << block_id);
         delete[] buf;
         return {};
     }
     std::vector<u8> data(buf + offset, buf + offset + len);
+
+    // we print the data here
+    DEBUG_LOG("Read data from block id: " << block_id << " offset: " << offset << " len: " << len);
+    for (auto &c : data) {
+        DEBUG_LOG("data:" << c);
+    }
+
     delete[] buf;
 
     // check the version of the block

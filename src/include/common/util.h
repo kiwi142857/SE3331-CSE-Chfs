@@ -20,11 +20,18 @@
 #include <random>
 
 #define DEBUG
+#define DEERROR
 
 #ifdef DEBUG
 #define DEBUG_LOG(x) std::cout << x << std::endl
 #else
 #define DEBUG_LOG(x)
+#endif
+
+#ifdef DEERROR
+#define ERROR_LOG(x) std::cerr << "ERROR" x << __LINE__ << " in " << __func__ << std::endl
+#else
+#define ERROR_LOG(x)
 #endif
 
 namespace chfs

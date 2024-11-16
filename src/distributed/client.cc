@@ -131,14 +131,17 @@ auto ChfsClient::read_file(inode_id_t id, usize offset, usize size) -> ChfsResul
 {
     // TODO: Implement this function.
     // UNIMPLEMENTED();
-
+    DEBUG_LOG("Read file id: " << id << " offset: " << offset << " size: " << size);
     // The client go to the metadata server to get the block map of the file
     auto block_infos_res = metadata_server_->call("get_block_map", id);
+    DEBUG_LOG("Read file step2 ");
     if (block_infos_res.is_err()) {
+        ERROR_LOG("Get block map failed");
         return ChfsResult<std::vector<u8>>(block_infos_res.unwrap_error());
     }
     auto block_infos = block_infos_res.unwrap()->as<std::vector<BlockInfo>>();
     if (block_infos.empty()) {
+        ERROR_LOG("Block info is empty");
         return ChfsResult<std::vector<u8>>(ErrorType::INVALID);
     }
     const auto BLOCK_SIZE = DiskBlockSize;
@@ -147,8 +150,11 @@ auto ChfsClient::read_file(inode_id_t id, usize offset, usize size) -> ChfsResul
     for (auto &block_info : block_infos) {
         auto mac_id = std::get<1>(block_info);
         auto cli = data_servers_[mac_id];
+
+        DEBUG_LOG("Read data from block id: " << std::get<0>(block_info));
         auto response = cli->call("read_data", std::get<0>(block_info), 0, BLOCK_SIZE, std::get<2>(block_info));
         if (response.is_err()) {
+            ERROR_LOG("Read data failed");
             return ChfsResult<std::vector<u8>>(response.unwrap_error());
         }
         auto block_data = response.unwrap()->as<std::vector<u8>>();
@@ -165,6 +171,8 @@ auto ChfsClient::write_file(inode_id_t id, usize offset, std::vector<u8> data) -
 {
     // TODO: Implement this function.
     // UNIMPLEMENTED();
+    DEBUG_LOG("Write file id: " << id << " offset: " << offset << " size: " << data.size());
+
     const auto BLOCK_SIZE = DiskBlockSize;
     auto write_length = data.size();
     auto get_block_map_response = metadata_server_->call("get_block_map", id);
@@ -176,11 +184,9 @@ auto ChfsClient::write_file(inode_id_t id, usize offset, std::vector<u8> data) -
     auto old_file_sz = block_info_vec.size() * BLOCK_SIZE;
 
     if (offset + write_length > old_file_sz) {
-        //...if we need to alloc enough block first, then to write...//
         auto new_block_num = ((offset + write_length) % BLOCK_SIZE) ? ((offset + write_length) / BLOCK_SIZE + 1)
                                                                     : ((offset + write_length) / BLOCK_SIZE);
         auto old_block_num = block_info_vec.size();
-        // alloc some new block
         for (auto i = old_block_num; i < new_block_num; ++i) {
             auto alloc_response = metadata_server_->call("alloc_block", id);
             if (alloc_response.is_err()) {
@@ -190,10 +196,8 @@ auto ChfsClient::write_file(inode_id_t id, usize offset, std::vector<u8> data) -
             auto new_block_info = alloc_response.unwrap()->as<BlockInfo>();
             block_info_vec.push_back(new_block_info);
         }
-        //...if we need to alloc enough block first, then to write...//
     }
 
-    //...if we don't need to alloc more block or we have allocated enough block to support our write operation...//
     auto write_start_idx = offset / BLOCK_SIZE;
     auto write_start_offset = offset % BLOCK_SIZE;
     auto write_end_idx = ((offset + write_length) % BLOCK_SIZE) ? ((offset + write_length) / BLOCK_SIZE + 1)
@@ -253,11 +257,8 @@ auto ChfsClient::write_file(inode_id_t id, usize offset, std::vector<u8> data) -
             return ChfsNullResult(error_code);
         }
     }
-    //! debug//
-    // std::cout << "write done" << std::endl;
-    //! debug//
+
     return KNullOk;
-    //...if we don't need to alloc more block...//
 }
 
 // {Your code here}
