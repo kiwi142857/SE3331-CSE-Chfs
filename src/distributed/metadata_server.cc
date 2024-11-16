@@ -114,6 +114,7 @@ auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
 
     // TODO: if we don't enable log and transaction feature
     if (type == DirectoryType) {
+        std::lock_guard<std::mutex> lock(inode_mutex_);
         auto mkdir_res = operation_->mkdir(parent, name.data());
         if (mkdir_res.is_err()) {
             DEBUG_LOG("mkdir failed");
@@ -122,6 +123,7 @@ auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
         DEBUG_LOG("mkdir success" << mkdir_res.unwrap());
         return mkdir_res.unwrap();
     } else if (type == RegularFileType) {
+        std::lock_guard<std::mutex> lock(inode_mutex_);
         auto mkfile_res = operation_->mkfile(parent, name.data());
         if (mkfile_res.is_err()) {
             DEBUG_LOG("mkfile failed");
@@ -145,7 +147,7 @@ auto MetadataServer::unlink(inode_id_t parent, const std::string &name) -> bool
     // UNIMPLEMENTED();
 
     // TODO: if we don't enable log and transaction feature
-
+    std::lock_guard<std::mutex> lock(inode_mutex_);
     auto lookup_result = lookup(parent, name);
     if (lookup_result == KInvalidInodeID) {
         return false;
@@ -256,6 +258,8 @@ auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo
     usize old_block_num = 0;
     // u64 original_file_sz = 0;
 
+    // 加锁
+    std::lock_guard<std::mutex> lock(inode_mutex_);
     // 1. read the inode
     std::vector<u8> file_inode(BLOCK_SIZE);
     auto inode_ptr = reinterpret_cast<Inode *>(file_inode.data());
@@ -347,6 +351,7 @@ auto MetadataServer::free_block(inode_id_t id, block_id_t block_id, mac_id_t mac
 
     const auto BLOCK_SIZE = operation_->block_manager_->block_size();
 
+    std::lock_guard<std::mutex> lock(inode_mutex_);
     // 1. read the inode
     std::vector<u8> file_inode(BLOCK_SIZE);
     auto inode_ptr = reinterpret_cast<Inode *>(file_inode.data());
@@ -355,14 +360,11 @@ auto MetadataServer::free_block(inode_id_t id, block_id_t block_id, mac_id_t mac
     if (inode_block_id == KInvalidBlockID) {
         return false;
     }
-    auto read_block_res = operation_->block_manager_->read_block(inode_block_id * 2, file_inode.data());
-    auto read_mac_res = operation_->block_manager_->read_block(inode_block_id * 2 + 1, file_inode.data());
+    auto read_block_res = operation_->block_manager_->read_block(inode_block_id, file_inode.data());
     if (read_block_res.is_err()) {
         return false;
     }
-    if (read_mac_res.is_err()) {
-        return false;
-    }
+
     bool is_found = false;
     uint record_idx = 0;
     for (uint i = 0; i < inode_ptr->get_nblocks(); i = i + 2) {
