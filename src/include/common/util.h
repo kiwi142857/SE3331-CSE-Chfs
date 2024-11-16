@@ -19,6 +19,8 @@
 #include <map>
 #include <random>
 
+#define DEBUG
+
 #ifdef DEBUG
 #define DEBUG_LOG(x) std::cout << x << std::endl
 #else
