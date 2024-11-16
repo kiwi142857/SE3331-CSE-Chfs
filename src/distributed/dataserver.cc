@@ -101,9 +101,6 @@ auto DataServer::read_data(block_id_t block_id, usize offset, usize len, version
 
     // we print the data here
     DEBUG_LOG("Read data from block id: " << block_id << " offset: " << offset << " len: " << len);
-    for (auto &c : data) {
-        DEBUG_LOG("data:" << c);
-    }
 
     delete[] buf;
 

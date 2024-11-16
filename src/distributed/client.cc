@@ -120,6 +120,8 @@ auto ChfsClient::get_type_attr(inode_id_t id) -> ChfsResult<std::pair<InodeType,
     attr.mtime = std::get<2>(type_attr);
     attr.ctime = std::get<3>(type_attr);
 
+    DEBUG_LOG("get file size: " << attr.size);
+
     return ChfsResult<std::pair<InodeType, FileAttr>>(std::make_pair(type, attr));
 }
 

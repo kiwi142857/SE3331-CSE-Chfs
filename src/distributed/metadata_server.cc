@@ -323,7 +323,8 @@ auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo
     inode_ptr->set_block_direct(idx + 1, target_mac_id);
 
     // maybe todo: update the attr of inode
-
+    // update the size of the file
+    inode_ptr->set_size(inode_ptr->get_size() + BLOCK_SIZE);
     auto write_res = operation_->block_manager_->write_block(inode_block_id, file_inode.data());
     if (write_res.is_err()) {
         return BlockInfo(KInvalidBlockID, 0, 0);
