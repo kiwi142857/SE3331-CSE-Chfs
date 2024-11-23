@@ -42,6 +42,7 @@ class BlockManager
     bool maybe_failed;
     usize write_fail_cnt;
     bool is_log_enabled; // a flag to enable log
+    usize LOG_BLOCK_NUM;
 
   public:
     /**
@@ -116,7 +117,7 @@ class BlockManager
      */
     virtual auto get_log_start() -> u8 *
     {
-        return block_data + ((block_cnt - 1024) * block_sz);
+        return block_data + ((block_cnt - KCommitLogNum) * block_sz);
     }
 
     /**
@@ -196,6 +197,14 @@ class BlockManager
      *
      */
     auto write_block_for_recover(block_id_t block_id, const u8 *data) -> ChfsNullResult;
+
+    /**
+     * Write a block for recovery, directory write to the block data
+     * @param block_id the block id to write
+     * @param log_data_id the log block id to read
+     * @return Ok(the null result)
+     */
+    auto write_block_for_recover(block_id_t block_id, block_id_t log_data_id) -> ChfsNullResult;
 };
 
 /**

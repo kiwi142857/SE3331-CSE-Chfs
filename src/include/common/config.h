@@ -2,7 +2,8 @@
 
 #include <cstdint>
 
-namespace chfs {
+namespace chfs
+{
 
 using u8 = uint8_t;
 using i8 = int8_t;
@@ -23,6 +24,7 @@ const usize KDefaultBlockCnt = 4096; // use a default 8MB file size
 const usize DiskBlockSize = 4096;    // 4KB
 const usize DistributedMaxInodeSupported = 4096;
 const usize kMaxLogBlockSize = 10 * 1024; // 40MB, 10 * 1K * 4K/per block = 40M
-const usize kMaxLogSize = 128; // when this reaches, trigger checkpoint
+const usize kMaxLogSize = 128;            // when this reaches, trigger checkpoint
+const usize KCommitLogNum = 1024;         // 1024 log entries
 
 } // namespace chfs

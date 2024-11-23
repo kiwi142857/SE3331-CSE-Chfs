@@ -50,6 +50,9 @@ class LogEntry
     block_id_t block_id;
     std::vector<u8> new_block_state;
     LogEntry() = default;
+    LogEntry(txn_id_t txn_id, block_id_t block_id) : txn_id(txn_id), block_id(block_id)
+    {
+    }
     LogEntry(txn_id_t txn_id, block_id_t block_id, std::vector<u8> new_block_state)
         : txn_id(txn_id), block_id(block_id), new_block_state(new_block_state)
     {
@@ -88,6 +91,7 @@ class CommitLog
     std::atomic<u64> current_offset;
     txn_id_t tx_num;
     std::mutex log_mtx;
+    const unsigned long commit_marker = 0xFFFFFFFFFFFFFFFF;
 };
 
 } // namespace chfs

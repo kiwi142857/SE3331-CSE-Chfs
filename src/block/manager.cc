@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "block/manager.h"
+#include "common/config.h"
 
 namespace chfs
 {
@@ -87,7 +88,7 @@ BlockManager::BlockManager(const std::string &file, usize block_cnt, bool is_log
     this->maybe_failed = false;
     // TODO: Implement this function.
     // UNIMPLEMENTED();
-    const auto LOG_BLOCK_NUM = 1024;
+    this->LOG_BLOCK_NUM = KCommitLogNum;
 
     this->fd = open(file.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
     CHFS_ASSERT(this->fd != -1, "Failed to open the block manager file");
@@ -131,7 +132,7 @@ auto BlockManager::write_block(block_id_t block_id, const u8 *data) -> ChfsNullR
 
 auto BlockManager::write_log_entry(usize offset, const u8 *data, usize len) -> ChfsNullResult
 {
-    const auto base_offset = (block_cnt - 1024) * block_sz;
+    const auto base_offset = (block_cnt - LOG_BLOCK_NUM) * block_sz;
     for (usize i = 0; i < len; ++i) {
         block_data[base_offset + offset + i] = data[i];
     }
@@ -146,6 +147,22 @@ auto BlockManager::write_block_for_recover(block_id_t block_id, const u8 *data) 
     auto block_offset = block_id * this->block_sz;
     for (usize i = 0; i < this->block_sz; ++i) {
         block_data[block_offset + i] = data[i];
+    }
+    return KNullOk;
+}
+
+auto BlockManager::write_block_for_recover(block_id_t block_id, block_id_t log_data_id) -> ChfsNullResult
+{
+    if (block_id >= block_cnt) {
+        return ChfsNullResult(ErrorType::INVALID_ARG);
+    }
+    if (log_data_id >= block_cnt - LOG_BLOCK_NUM) {
+        return ChfsNullResult(ErrorType::INVALID_ARG);
+    }
+    auto block_offset = block_id * this->block_sz;
+    auto log_offset = (block_cnt - LOG_BLOCK_NUM + log_data_id) * this->block_sz;
+    for (usize i = 0; i < this->block_sz; ++i) {
+        block_data[block_offset + i] = block_data[log_offset + i];
     }
     return KNullOk;
 }

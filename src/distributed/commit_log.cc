@@ -1,6 +1,7 @@
 #include <algorithm>
 
 #include "common/bitmap.h"
+#include "common/config.h"
 #include "distributed/commit_log.h"
 #include "distributed/metadata_server.h"
 #include "filesystem/directory_op.h"
@@ -38,9 +39,7 @@ auto CommitLog::append_log(txn_id_t txn_id, std::vector<std::shared_ptr<BlockOpe
     auto initial_offset = current_offset.load();
     // traverse all the ops
     for (auto &op : ops) {
-        LogEntry log_entry;
-        log_entry.txn_id = txn_id;
-        log_entry.block_id = op->block_id_;
+        LogEntry log_entry(txn_id, op->block_id_);
         std::vector<u8> buffer(sizeof(LogEntry) + DiskBlockSize);
         log_entry.flush_to_buffer(buffer.data());
         auto log_entry_ptr = reinterpret_cast<LogEntry *>(buffer.data());
@@ -52,8 +51,9 @@ auto CommitLog::append_log(txn_id_t txn_id, std::vector<std::shared_ptr<BlockOpe
         current_offset += sizeof(LogEntry) + DiskBlockSize;
     }
     // persist the log
-    auto start_block_id = initial_offset / bm_->block_size();
-    auto end_block_id = current_offset / bm_->block_size();
+    const auto BLOCK_SIZE = bm_->block_size();
+    auto start_block_id = initial_offset / BLOCK_SIZE;
+    auto end_block_id = current_offset / BLOCK_SIZE;
     const auto base_block_id = bm_->total_blocks();
     for (auto i = start_block_id; i < end_block_id; ++i) {
         bm_->sync(i + base_block_id);
@@ -63,7 +63,7 @@ auto CommitLog::append_log(txn_id_t txn_id, std::vector<std::shared_ptr<BlockOpe
 
     if (is_checkpoint_enabled_) {
         // checkpoint
-        if (tx_num >= 100 || current_offset >= DiskBlockSize * 1000) {
+        if (tx_num % 20 == 0 || current_offset >= DiskBlockSize * 1000) {
             checkpoint();
         }
     }
@@ -75,17 +75,16 @@ auto CommitLog::commit_log(txn_id_t txn_id) -> void
     // TODO: Implement this function.
     // UNIMPLEMENTED();
     auto initial_offset = current_offset.load();
-    LogEntry log_entry;
-    log_entry.txn_id = txn_id;
-    // we use block_id as 0xFFFFFFFFFFFFFFFF to indicate the end of the log
-    log_entry.block_id = 0xFFFFFFFFFFFFFFFF;
+    LogEntry log_entry(txn_id, commit_marker);
     std::vector<u8> buffer(sizeof(LogEntry) + DiskBlockSize);
     log_entry.flush_to_buffer(buffer.data());
     bm_->write_log_entry(current_offset, buffer.data(), sizeof(LogEntry) + DiskBlockSize);
     current_offset += sizeof(LogEntry) + DiskBlockSize;
+
     // persist the log
-    auto start_block_id = initial_offset / bm_->block_size();
-    auto end_block_id = current_offset / bm_->block_size();
+    const auto BLOCK_SIZE = bm_->block_size();
+    auto start_block_id = initial_offset / BLOCK_SIZE;
+    auto end_block_id = current_offset / BLOCK_SIZE;
     const auto base_block_id = bm_->total_blocks();
     for (auto i = start_block_id; i < end_block_id; ++i) {
         bm_->sync(i + base_block_id);
@@ -98,7 +97,7 @@ auto CommitLog::checkpoint() -> void
     // TODO: Implement this function.
     // UNIMPLEMENTED();
     auto log_start = bm_->get_log_start();
-    memset(log_start, 0, DiskBlockSize * 1024);
+    memset(log_start, 0, DiskBlockSize * KCommitLogNum);
     current_offset = 0;
     tx_num = 0;
 
@@ -130,7 +129,7 @@ auto CommitLog::recover() -> void
             if (log_entry_ptr->txn_id != this_txn_id) {
                 break;
             }
-            if (log_entry_ptr->block_id == 0xFFFFFFFFFFFFFFFF) {
+            if (log_entry_ptr->block_id == commit_marker) {
                 is_this_tx_committed = true;
                 break;
             }
@@ -140,17 +139,16 @@ auto CommitLog::recover() -> void
             it += (sizeof(LogEntry) + DiskBlockSize) * num_entry_tx;
             continue;
         }
+
         // redo the operation
         auto redo_it = it;
         while (redo_it < txn_it) {
             auto log_entry_ptr = reinterpret_cast<LogEntry *>(redo_it);
             auto block_id = log_entry_ptr->block_id;
             auto new_block_state = log_entry_ptr->new_block_state;
-            std::vector<u8> buffer(DiskBlockSize);
-            for (int i = 0; i < DiskBlockSize; ++i) {
-                buffer[i] = new_block_state[i];
-            }
-            bm_->write_block_for_recover(block_id, buffer.data());
+
+            bm_->write_block_for_recover(block_id, new_block_state.data());
+
             redo_it += (sizeof(LogEntry) + DiskBlockSize);
         }
         it += (sizeof(LogEntry) + DiskBlockSize) * num_entry_tx;
