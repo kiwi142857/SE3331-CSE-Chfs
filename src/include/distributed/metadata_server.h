@@ -197,7 +197,7 @@ class MetadataServer
         }
         operation_->block_manager_->set_may_fail(false);
         commit_log->recover();
-        operation_->block_manager_->set_may_fail(true);
+        // operation_->block_manager_->set_may_fail(true);
     }
 
     /**

@@ -116,10 +116,9 @@ TEST_F(CommitLogTest, CheckRecoverFromFailure)
 {
     auto meta_srv = std::make_shared<MetadataServer>(meta_port, inode_path, true, true, true);
 
-    // auto mk_res =
-    meta_srv->mknode(DirectoryType, 1, "dir");
+    auto mk_res = meta_srv->mknode(DirectoryType, 1, "dir");
 
-    // EXPECT_EQ(mk_res, 0);
+    EXPECT_EQ(mk_res, 0);
 
     // error occurs
     meta_srv->recover();

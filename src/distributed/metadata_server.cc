@@ -69,8 +69,8 @@ inline auto MetadataServer::init_fs(const std::string &data_path)
     num_data_servers = 0; // Default no data server. Need to call `reg_server` to add.
 
     if (is_log_enabled_) {
-        if (may_failed_)
-            operation_->block_manager_->set_may_fail(true);
+        // if (may_failed_)
+        //     operation_->block_manager_->set_may_fail(true);
         commit_log = std::make_shared<CommitLog>(operation_->block_manager_, is_checkpoint_enabled_);
     }
 
@@ -121,6 +121,9 @@ auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
             return KInvalidInodeID;
         }
         DEBUG_LOG("mkdir success" << mkdir_res.unwrap());
+        if (may_failed_) {
+            return KInvalidBlockID;
+        }
         return mkdir_res.unwrap();
     } else if (type == RegularFileType) {
         std::lock_guard<std::mutex> lock(inode_mutex_);

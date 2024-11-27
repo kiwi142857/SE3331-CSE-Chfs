@@ -19,7 +19,7 @@
 #include <map>
 #include <random>
 
-#define DEBUG
+// #define DEBUG
 #define DEERROR
 
 #ifdef DEBUG
