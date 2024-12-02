@@ -186,6 +186,21 @@ public:
    */
   auto unlink(inode_id_t parent, const char *name) -> ChfsNullResult;
 
+  /**
+   * Remove the inode @inode_id from the filesystem.
+   * Free the inode's blocks.
+   * 
+   * This function will only be called by the metadata server
+   * we'll not delete the block of the inode since the blocks are actually stored in the data server
+   * 
+   * we'll update the bitmap of the inode and the inode itself, bitmap of block and bitmap of inode
+   * 
+   * @return  If the file doesn't exist, indicate error ENOENT.
+   * @return  ENOTEMPTY if the deleted file is a directory
+   * @return  EISDIR if the deleted file is a directory
+   */
+  auto remove_metaserver_inode(inode_id_t parent, const char *name) -> ChfsNullResult;
+
 private:
   FileOperation(std::shared_ptr<BlockManager> bm,
                 std::shared_ptr<InodeManager> im,

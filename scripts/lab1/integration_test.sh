@@ -3,6 +3,7 @@
 PARENT_DIR="$(dirname "$(realpath "$0")")"
 source $PARENT_DIR/set-env.sh
 
+# CHFSDIR1=$ROOT_PATH/mnt
 CHFSDIR1=$ROOT_PATH/mnt
 SCRIPTS_PATH=$ROOT_PATH/scripts/lab1
 

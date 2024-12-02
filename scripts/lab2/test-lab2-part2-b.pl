@@ -100,7 +100,12 @@ sub checkcontent {
     }
     close(F);
     $c2 = substr($c2, 0, $len);
-    $files->{$name} eq $c2 or die "content of $f is incorrect\n";
+
+    if ($files->{$name} ne $c2) {
+        print STDERR "Expected content: " . $files->{$name} . "\n";
+        print STDERR "Actual content: " . $c2 . "\n";
+        die "content of $f is incorrect\n";
+    }
 }
 
 sub checknot {
