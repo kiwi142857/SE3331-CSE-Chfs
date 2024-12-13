@@ -2,15 +2,26 @@
 #include <mutex>
 #include <sstream>
 
-namespace chfs {
+namespace chfs
+{
 
-class ListCommand: public ChfsCommand {
-public:
-    ListCommand() {}
-    ListCommand(int v): value(v) {}
-    virtual ~ListCommand() {}
+class ListCommand : public ChfsCommand
+{
+  public:
+    ListCommand()
+    {
+    }
+    ListCommand(int v) : value(v)
+    {
+    }
+    virtual ~ListCommand()
+    {
+    }
 
-    virtual size_t size() const override { return 4; }
+    virtual size_t size() const override
+    {
+        return 4;
+    }
 
     virtual std::vector<u8> serialize(int sz) const override
     {
@@ -18,7 +29,7 @@ public:
 
         if (sz != size())
             return buf;
-        
+
         buf.push_back((value >> 24) & 0xff);
         buf.push_back((value >> 16) & 0xff);
         buf.push_back((value >> 8) & 0xff);
@@ -40,15 +51,18 @@ public:
     int value;
 };
 
-class ListStateMachine: public ChfsStateMachine {
-public:
+class ListStateMachine : public ChfsStateMachine
+{
+  public:
     ListStateMachine()
     {
         store.push_back(0);
         num_append_logs = 0;
     }
 
-    virtual ~ListStateMachine() {}
+    virtual ~ListStateMachine()
+    {
+    }
 
     virtual std::vector<u8> snapshot() override
     {
@@ -80,8 +94,7 @@ public:
         store = std::vector<int>();
         int size;
         ss >> size;
-        for (int i = 0; i < size; i++)
-        {
+        for (int i = 0; i < size; i++) {
             int temp;
             ss >> temp;
             store.push_back(temp);
@@ -93,4 +106,4 @@ public:
     int num_append_logs;
 };
 
-}   /* namespace chfs */
+} /* namespace chfs */
