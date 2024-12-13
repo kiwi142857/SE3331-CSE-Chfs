@@ -226,6 +226,8 @@ RaftNode<StateMachine, Command>::RaftNode(int node_id, std::vector<RaftNodeConfi
 
 template <typename StateMachine, typename Command> RaftNode<StateMachine, Command>::~RaftNode()
 {
+    RAFT_LOG("Destructor called");
+
     stop();
 
     thread_pool.reset();
@@ -276,11 +278,15 @@ template <typename StateMachine, typename Command> auto RaftNode<StateMachine, C
 template <typename StateMachine, typename Command> auto RaftNode<StateMachine, Command>::stop() -> int
 {
     /* Lab3: Your code here */
-    std::unique_lock<std::mutex> lock(mtx);
-    if (stopped) {
-        return 0; // Already stopped
+    RAFT_LOG("Stopping node");
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+        if (stopped) {
+            return 0; // Already stopped
+        }
+        stopped = true;
+        RAFT_LOG("Set stopped to true");
     }
-    stopped = true;
 
     // 通知所有后台线程停止
     if (background_election && background_election->joinable()) {
@@ -311,7 +317,8 @@ auto RaftNode<StateMachine, Command>::is_leader() -> std::tuple<bool, int>
 
 template <typename StateMachine, typename Command> auto RaftNode<StateMachine, Command>::is_stopped() -> bool
 {
-    return stopped.load();
+    bool is_stop = stopped.load();
+    return is_stop;
 }
 
 template <typename StateMachine, typename Command>
