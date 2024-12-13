@@ -69,7 +69,7 @@ template <typename Command> void RaftLog<Command>::append_entries(const std::vec
 template <typename Command> bool RaftLog<Command>::match_log(int index, int term) const
 {
     // Empty implementation
-    return false;
+    return true;
 }
 
 template <typename Command> void RaftLog<Command>::truncate_log(int index)

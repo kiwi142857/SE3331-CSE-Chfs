@@ -82,8 +82,19 @@ struct RpcAppendEntriesArgs {
 
 template <typename Command> RpcAppendEntriesArgs transform_append_entries_args(const AppendEntriesArgs<Command> &arg)
 {
-    /* Lab3: Your code here */
-    return RpcAppendEntriesArgs();
+    RpcAppendEntriesArgs rpc_arg;
+    rpc_arg.term = arg.term;
+    rpc_arg.leader_id = arg.leader_id;
+    rpc_arg.prev_log_index = arg.prev_log_index;
+    rpc_arg.prev_log_term = arg.prev_log_term;
+    rpc_arg.leader_commit = arg.leader_commit;
+
+    for (const auto &entry : arg.entries) {
+        std::vector<u8> entry_data = entry.serialize(entry.size());
+        rpc_arg.entries.insert(rpc_arg.entries.end(), entry_data.begin(), entry_data.end());
+    }
+
+    return rpc_arg;
 }
 
 template <typename Command>
