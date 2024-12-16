@@ -28,6 +28,9 @@ template <typename Command> class RaftLog
     // Check if the log contains an entry at the given index with the given term
     bool match_log(int index, int term) const;
 
+    // Check if the log contains an entry at the given index
+    bool contain_index(int index) const;
+
     // Truncate the log from the given index
     void truncate_log(int index);
 
@@ -98,6 +101,12 @@ template <typename Command> bool RaftLog<Command>::match_log(int index, int term
         return true;
     }
     return false;
+}
+
+template <typename Command> bool RaftLog<Command>::contain_index(int index) const
+{
+    std::unique_lock<std::mutex> lock(mtx);
+    return index < log_entries.size();
 }
 
 template <typename Command> void RaftLog<Command>::truncate_log(int index)

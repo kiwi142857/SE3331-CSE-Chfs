@@ -146,6 +146,9 @@ template <typename StateMachine, typename Command> class RaftNode
     /* send heart_beat: Only be called when new election is done */
     void send_heartbeats();
 
+    /* update commit index */
+    void update_commit_index();
+
     /* background workers */
     void run_background_ping();
     void run_background_election();
@@ -348,7 +351,9 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
             AppendEntriesArgs<Command> args;
             args.term = current_term;
             args.leader_id = my_id;
-            args.prev_log_index = log_storage->last_log_index() - 1;
+            // args.prev_log_index = log_storage->last_log_index() - 1;
+            // TODO: check here
+            args.prev_log_index = nextIndex[config.node_id] - 1;
             args.prev_log_term = log_storage->term(args.prev_log_index);
             args.entries = {cmd};
             args.leader_commit = log_storage->commit_index();
@@ -436,7 +441,9 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
             args.term = current_term;
             RAFT_LOG("Current term: %d", current_term);
             args.leader_id = my_id;
-            args.prev_log_index = log_storage->last_log_index();
+            // args.prev_log_index = log_storage->last_log_index();
+            // TODO: check here
+            args.prev_log_index = nextIndex[config.node_id] - 1;
             args.prev_log_term = log_storage->last_log_term();
             args.entries = {}; // Empty entries for heartbeat
             args.leader_commit = log_storage->commit_index();
@@ -446,6 +453,23 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
                      config.node_id, args.term, args.prev_log_index, args.prev_log_term,
                      static_cast<int>(args.entries.size()), args.leader_commit);
             send_append_entries(config.node_id, args);
+        }
+    }
+}
+
+template <typename StateMachine, typename Command> void RaftNode<StateMachine, Command>::update_commit_index()
+{
+    for (int N = log_storage->last_log_index(); N > log_storage->commit_index(); --N) {
+        int count = 1; // Count this node
+        for (const auto &config : node_configs) {
+            if (config.node_id != my_id && matchIndex[config.node_id] >= N) {
+                count++;
+            }
+        }
+        // The current_term match is required to ensure that the commit index is only updated for the current term
+        if (count > node_configs.size() / 2 && log_storage->term(N) == current_term) {
+            log_storage->set_commit_index(N);
+            break;
         }
     }
 }
@@ -488,8 +512,11 @@ void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, cons
         role = RaftRole::Leader;
 
         // TODO: Initialize leader state (e.g., nextIndex, matchIndex)
+        for (int i = 0; i < node_configs.size(); i++) {
+            nextIndex[i] = log_storage->last_log_index() + 1;
+            matchIndex[i] = 0;
+        }
         // Start sending heartbeats to followers
-        // TODO: Implement send_heartbeats() or invoke run_background_ping()
         send_heartbeats();
     }
 
@@ -529,13 +556,17 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
 
     // Step 3: Reply false if log doesn’t contain an entry at prevLogIndex
     // whose term matches prevLogTerm (§5.3)
-    if (!log_storage->match_log(rpc_arg.prev_log_index, rpc_arg.prev_log_term)) {
+    if (!log_storage->contain_log(rpc_arg.prev_log_index)) {
+        RAFT_LOG("Log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm");
         return reply;
     }
 
     // Step 4: If an existing entry conflicts with a new one (same index
     // but different terms), delete the existing entry and all that follow it (§5.3)
-    log_storage->truncate_log(rpc_arg.prev_log_index + 1);
+    if (log_storage->match_log(rpc_arg.prev_log_index, rpc_arg.prev_log_term)) {
+        RAFT_LOG("An existing entry conflicts with a new one, delete the existing entry and all that follow it");
+        log_storage->truncate_log(rpc_arg.prev_log_index + 1);
+    }
 
     // Step 5: Append any new entries not already in the log
     std::vector<Command> commands;
@@ -545,10 +576,14 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
         commands.push_back(cmd);
     }
     log_storage->append_entries(commands);
+    if (!rpc_arg.entries.empty()) {
+        RAFT_LOG("Appended %d new entries to log", static_cast<int>(rpc_arg.entries.size()));
+    }
 
     // Step 6: If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry) (§5.3)
     if (rpc_arg.leader_commit > log_storage->commit_index()) {
         log_storage->set_commit_index(std::min(rpc_arg.leader_commit, log_storage->last_log_index()));
+        RAFT_LOG("Set commitIndex to %d", log_storage->commit_index());
     }
 
     // update last_heartbeat
@@ -585,6 +620,7 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
     if (reply.success) {
         nextIndex[node_id] = arg.prev_log_index + arg.entries.size() + 1;
         matchIndex[node_id] = nextIndex[node_id] - 1;
+        update_commit_index();
     } else {
         // If AppendEntries RPC failed, decrement nextIndex and retry
         nextIndex[node_id] = std::max(1, nextIndex[node_id] - 1);
@@ -855,7 +891,9 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
                     AppendEntriesArgs<Command> args;
                     args.term = current_term;
                     args.leader_id = my_id;
-                    args.prev_log_index = log_storage->last_log_index();
+                    // args.prev_log_index = log_storage->last_log_index();
+                    // TODO: check here
+                    args.prev_log_index = nextIndex[config.node_id] - 1;
                     args.prev_log_term = log_storage->last_log_term();
                     args.entries = {}; // Empty entries for heartbeat
                     args.leader_commit = log_storage->commit_index();
