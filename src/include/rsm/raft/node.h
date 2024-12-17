@@ -303,7 +303,7 @@ template <typename StateMachine, typename Command> auto RaftNode<StateMachine, C
     stopped = false;
 
     // Initialise thread pool
-    thread_pool = std::make_unique<ThreadPool>(4);
+    thread_pool = std::make_unique<ThreadPool>(thread_pool_size);
 
     SET_CERR_OUTPUT("log.txt");
     RAFT_LOG("Starting node");
@@ -394,27 +394,28 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
     RAFT_LOG("Appended new command to log at index %d", log_index);
 
     // Send AppendEntries RPCs to all followers
-    for (const auto &config : node_configs) {
-        if (config.node_id != my_id) {
-            AppendEntriesArgs<Command> args;
-            args.term = current_term;
-            args.leader_id = my_id;
-            // args.prev_log_index = log_storage->last_log_index() - 1;
-            // TODO: check here
-            args.prev_log_index = log_storage->last_log_index() - 1;
-            args.prev_log_term = log_storage->term(args.prev_log_index);
-            args.entries = {entry};
-            args.leader_commit = log_storage->commit_index();
+    // for (const auto &config : node_configs) {
+    //     if (config.node_id != my_id) {
+    //         AppendEntriesArgs<Command> args;
+    //         args.term = current_term;
+    //         args.leader_id = my_id;
+    //         // args.prev_log_index = log_storage->last_log_index() - 1;
+    //         // TODO: check here
+    //         args.prev_log_index = log_storage->last_log_index() - 1;
+    //         args.prev_log_term = log_storage->term(args.prev_log_index);
+    //         args.entries = {entry};
+    //         args.leader_commit = log_storage->commit_index();
 
-            RAFT_LOG("NEW COMMAND: Sending AppendEntries RPC to node %d, term %d, prev_log_index %d, prev_log_term %d, "
-                     "entries %d, leader_commit %d, value[0]= %d",
-                     config.node_id, args.term, args.prev_log_index, args.prev_log_term,
-                     static_cast<int>(args.entries.size()), args.leader_commit,
-                     args.entries.empty() ? -1 : args.entries.front().command().value);
+    //         RAFT_LOG("NEW COMMAND: Sending AppendEntries RPC to node %d, term %d, prev_log_index %d, prev_log_term
+    //         %d, "
+    //                  "entries %d, leader_commit %d, value[0]= %d",
+    //                  config.node_id, args.term, args.prev_log_index, args.prev_log_term,
+    //                  static_cast<int>(args.entries.size()), args.leader_commit,
+    //                  args.entries.empty() ? -1 : args.entries.front().command().value);
 
-            thread_pool->enqueue(&RaftNode::send_append_entries, this, config.node_id, args);
-        }
-    }
+    //         thread_pool->enqueue(&RaftNode::send_append_entries, this, config.node_id, args);
+    //     }
+    // }
 
     return std::make_tuple(true, current_term, log_index);
 }
@@ -495,7 +496,7 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
             // args.prev_log_index = log_storage->last_log_index();
             // TODO: check here
             args.prev_log_index = nextIndex[config.node_id] - 1;
-            args.prev_log_term = log_storage->last_log_term();
+            args.prev_log_term = log_storage->term(args.prev_log_index);
             args.entries = {}; // Empty entries for heartbeat
             args.leader_commit = log_storage->commit_index();
 
@@ -704,28 +705,6 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
         nextIndex[node_id] =
             std::max(arg.prev_log_index + static_cast<int>(arg.entries.size()) + 1, nextIndex[node_id]);
         matchIndex[node_id] = nextIndex[node_id] - 1;
-        // if the follower hasn't caught up, send more entries
-        // if (nextIndex[node_id] <= log_storage->last_log_index()) {
-        //     AppendEntriesArgs<Command> retry_args;
-        //     retry_args.leader_id = my_id;
-        //     retry_args.prev_log_index = nextIndex[node_id] - 1;
-        //     retry_args.prev_log_term = log_storage->term(retry_args.prev_log_index);
-        //     retry_args.entries = log_storage->get_entries(retry_args.prev_log_index + 1,
-        //                                                   log_storage->last_log_index() - retry_args.prev_log_index);
-        //     retry_args.term = current_term;
-        //     retry_args.leader_commit = log_storage->commit_index();
-        //     // FOR DEBUG TEMP
-        //     // print entries value here, to print in one line for easy debug, we using a stream to contain all the
-        //     value
-        //     // with ' ' as split
-        //     std::stringstream ss;
-        //     for (const auto &entry : retry_args.entries) {
-        //         ss << entry.command().value << ' ';
-        //     }
-        //     RAFT_DEBUG("Retry with value: %s, original nextIndex = %d, new nextIndex = %d", ss.str().c_str(),
-        //                origin_nextIndex, nextIndex[node_id]);
-        //     thread_pool->enqueue(&RaftNode::send_append_entries, this, node_id, retry_args);
-        // }
     } else {
         // FOR DEBUG TMP
         int origin_nextIndex = nextIndex[node_id];
@@ -932,25 +911,26 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
             update_commit_index();
 
             // send logs to the follower
-            // for (const auto &config : node_configs) {
-            //     if (config.node_id == my_id) {
-            //         continue;
-            //     }
-            //     if (nextIndex[config.node_id] <= log_storage->last_log_index()) {
-            //         AppendEntriesArgs<Command> args;
-            //         args.term = current_term;
-            //         args.leader_id = my_id;
-            //         args.prev_log_index = nextIndex[config.node_id] - 1;
-            //         args.prev_log_term = log_storage->term(args.prev_log_index);
-            //         args.entries = log_storage->get_entries(nextIndex[config.node_id], 1);
-            //         args.leader_commit = log_storage->commit_index();
-            //         RAFT_LOG("Sending AppendEntries RPC to node %d, term %d, prev_log_index %d, prev_log_term %d, "
-            //                  "entries %d, leader_commit %d",
-            //                  config.node_id, args.term, args.prev_log_index, args.prev_log_term,
-            //                  static_cast<int>(args.entries.size()), args.leader_commit);
-            //         thread_pool->enqueue(&RaftNode::send_append_entries, this, config.node_id, args);
-            //     }
-            // }
+            for (const auto &config : node_configs) {
+                if (config.node_id == my_id) {
+                    continue;
+                }
+                if (nextIndex[config.node_id] <= log_storage->last_log_index()) {
+                    AppendEntriesArgs<Command> args;
+                    args.term = current_term;
+                    args.leader_id = my_id;
+                    args.prev_log_index = nextIndex[config.node_id] - 1;
+                    args.prev_log_term = log_storage->term(args.prev_log_index);
+                    args.entries = log_storage->get_entries(nextIndex[config.node_id],
+                                                            log_storage->last_log_index() - args.prev_log_index);
+                    args.leader_commit = log_storage->commit_index();
+                    RAFT_LOG("Sending AppendEntries RPC to node %d, term %d, prev_log_index %d, prev_log_term %d, "
+                             "entries %d, leader_commit %d",
+                             config.node_id, args.term, args.prev_log_index, args.prev_log_term,
+                             static_cast<int>(args.entries.size()), args.leader_commit);
+                    thread_pool->enqueue(&RaftNode::send_append_entries, this, config.node_id, args);
+                }
+            }
         }
         // Sleep for a short duration before checking again
         std::this_thread::sleep_for(std::chrono::milliseconds(run_background_commit_sleep));
@@ -1009,23 +989,7 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
                 continue;
             }
 
-            RAFT_LOG("Sending heartbeats to all nodes");
-            // Send empty append_entries RPC to all followers
-            for (const auto &config : node_configs) {
-                if (config.node_id != my_id) {
-                    AppendEntriesArgs<Command> args;
-                    args.term = current_term;
-                    args.leader_id = my_id;
-                    // args.prev_log_index = log_storage->last_log_index();
-                    // TODO: check here
-                    args.prev_log_index = nextIndex[config.node_id] - 1;
-                    args.prev_log_term = log_storage->last_log_term();
-                    args.entries = {}; // Empty entries for heartbeat
-                    args.leader_commit = log_storage->commit_index();
-
-                    thread_pool->enqueue(&RaftNode::send_append_entries, this, config.node_id, args);
-                }
-            }
+            send_heartbeats();
         }
 
         // Sleep for a short duration before sending the next heartbeat

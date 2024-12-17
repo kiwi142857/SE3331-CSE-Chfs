@@ -210,7 +210,8 @@ template <typename Command> RaftLogEntry<Command> RaftLog<Command>::get_entry(in
     if (index < log_entries.size()) {
         return log_entries[index];
     }
-    throw std::out_of_range("Index out of range");
+    throw std::out_of_range("Index out of range with index: " + std::to_string(index) +
+                            " and log size: " + std::to_string(log_entries.size()));
 }
 
 template <typename Command>
