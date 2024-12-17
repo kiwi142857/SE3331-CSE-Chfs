@@ -308,6 +308,16 @@ template <typename StateMachine, typename Command> auto RaftNode<StateMachine, C
     SET_CERR_OUTPUT("log.txt");
     RAFT_LOG("Starting node");
 
+    // RaftLog for persistence
+    std::string node_log_filename = raft_log_folder + node_file_subpath + std::to_string(my_id);
+    bool is_recovery = is_file_exist(node_log_filename);
+    auto block_manager = std::shared_ptr<BlockManager>(new BlockManager(node_log_filename));
+    log_storage = std::make_unique<RaftLog<Command>>(block_manager, is_recovery);
+
+    // log_storage->save_metadata();
+    // log_storage->set_snapshot_term(-1);
+    // log_storage->recover();
+
     // Initialize RPC clients for all nodes
     {
         std::unique_lock<std::mutex> clients_lock(clients_mtx);
@@ -467,6 +477,7 @@ auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> Requ
             // Reset voted_for and other state variables
         }
         voted_for = -1;
+        log_storage->save_metadata(current_term, voted_for);
     }
 
     // Step 3: If votedFor is null or candidateId, and candidate’s log is at
@@ -478,6 +489,7 @@ auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> Requ
     if ((voted_for == -1 || voted_for == args.candidate_id) && log_is_up_to_date) {
         voted_for = args.candidate_id;
         reply.vote_granted = true;
+        log_storage->save_metadata(current_term, voted_for);
     }
 
     RAFT_LOG("Voting for node %d, term %d, vote_granted %d", args.candidate_id, reply.term, reply.vote_granted);
@@ -544,6 +556,7 @@ void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, cons
 
         role = RaftRole::Follower;
         voted_for = -1;
+        log_storage->save_metadata(current_term, voted_for);
         return;
     }
 
@@ -607,6 +620,7 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
         RAFT_LOG("rpc_arg.term > current_term, convert to follower; original role: %d", role);
         role = RaftRole::Follower;
         voted_for = -1;
+        log_storage->save_metadata(current_term, voted_for);
     }
 
     // Step 3: Reply false if log doesn’t contain an entry at prevLogIndex
@@ -685,6 +699,7 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
         role = RaftRole::Follower;
         RAFT_LOG("reply.term > current_term, convert to follower; original role: %d", role);
         voted_for = -1;
+        log_storage->save_metadata(current_term, voted_for);
         return;
     }
 
@@ -869,6 +884,7 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
                 args.candidate_id = my_id;
                 args.last_log_index = log_storage->last_log_index();
                 args.last_log_term = log_storage->last_log_term();
+                log_storage->save_metadata(current_term, voted_for);
 
                 for (const auto &config : node_configs) {
                     if (config.node_id != my_id) {

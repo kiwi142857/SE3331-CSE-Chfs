@@ -120,6 +120,9 @@ template <typename Command> class RaftLog
     // Save metadata to the given file
     void save_metadata() const;
 
+    // Save metadata to the given file
+    void save_metadata(int term, int voted_for);
+
     // Save snapshot to the given file
     void save_snapshot() const;
 
@@ -169,7 +172,7 @@ template <typename Command> class RaftLog
 
 template <typename Command>
 RaftLog<Command>::RaftLog(std::shared_ptr<BlockManager> bm)
-    : bm_(bm), commit_idx(0), current_term_(0), max_inode_num(max_inode_num_), voted_for(-1)
+    : bm_(bm), commit_idx(0), current_term_(0), voted_for_(-1), max_inode_num(max_inode_num_)
 {
     // Append an empty log entry at the beginning
     log_entries.emplace_back(0, Command());
@@ -177,7 +180,7 @@ RaftLog<Command>::RaftLog(std::shared_ptr<BlockManager> bm)
 
 template <typename Command>
 RaftLog<Command>::RaftLog(std::shared_ptr<BlockManager> bm, bool is_recovery)
-    : bm_(bm), commit_idx(0), current_term_(0), max_inode_num(max_inode_num_), voted_for(-1)
+    : bm_(bm), commit_idx(0), current_term_(0), voted_for_(-1), max_inode_num(max_inode_num_)
 {
     // Append an empty log entry at the beginning
     log_entries.emplace_back(0, Command());
@@ -188,6 +191,7 @@ RaftLog<Command>::RaftLog(std::shared_ptr<BlockManager> bm, bool is_recovery)
             RAFT_FILE_OP_ERROR("Failed to create FileOperation from raw: %d", res.unwrap_error());
         }
         file_op_ = res.unwrap();
+        recover();
         return;
     }
 
@@ -385,7 +389,25 @@ template <typename Command> void RaftLog<Command>::save_metadata() const
     data.push_back((voted_for_ >> 16) & 0xff);
     data.push_back((voted_for_ >> 8) & 0xff);
     data.push_back(voted_for_ & 0xff);
-    return file_op_->write_file(metadata_inode, data);
+    file_op_->write_file(metadata_inode, data);
+}
+
+template <typename Command> void RaftLog<Command>::save_metadata(int term, int voted_for)
+{
+    current_term_ = term;
+    voted_for_ = voted_for;
+
+    std::unique_lock<std::mutex> lock(mtx);
+    std::vector<u8> data;
+    data.push_back((current_term_ >> 24) & 0xff);
+    data.push_back((current_term_ >> 16) & 0xff);
+    data.push_back((current_term_ >> 8) & 0xff);
+    data.push_back(current_term_ & 0xff);
+    data.push_back((voted_for_ >> 24) & 0xff);
+    data.push_back((voted_for_ >> 16) & 0xff);
+    data.push_back((voted_for_ >> 8) & 0xff);
+    data.push_back(voted_for_ & 0xff);
+    file_op_->write_file(metadata_inode, data);
 }
 
 template <typename Command> void RaftLog<Command>::save_log() const
@@ -400,7 +422,7 @@ template <typename Command> void RaftLog<Command>::save_log() const
         auto command_data = entry.command().serialize();
         data.insert(data.end(), command_data.begin(), command_data.end());
     }
-    return file_op_->write_file(log_inode, data);
+    file_op_->write_file(log_inode, data);
 }
 
 template <typename Command> void RaftLog<Command>::save_snapshot() const
@@ -411,7 +433,7 @@ template <typename Command> void RaftLog<Command>::save_snapshot() const
     data.push_back((commit_idx >> 16) & 0xff);
     data.push_back((commit_idx >> 8) & 0xff);
     data.push_back(commit_idx & 0xff);
-    return file_op_->write_file(snapshot_inode, data);
+    file_op_->write_file(snapshot_inode, data);
 }
 
 template <typename Command> void RaftLog<Command>::recover()
@@ -453,8 +475,6 @@ template <typename Command> void RaftLog<Command>::recover_log()
         log_entries.emplace_back(term, command);
         offset += command_size;
     }
-
-    snapshot_index = log_entries[0].te
 }
 
 template <typename Command> void RaftLog<Command>::recover_snapshot()
@@ -466,6 +486,9 @@ template <typename Command> void RaftLog<Command>::recover_snapshot()
     }
     data = res.unwrap();
     node_snapshot = data;
+    snapshot_term = log_entries[0].term();
+    // TODO: fix here
+    snapshot_index = 0;
 }
 
 } // namespace chfs
