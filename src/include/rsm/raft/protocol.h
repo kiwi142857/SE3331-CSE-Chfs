@@ -54,14 +54,13 @@ template <typename Command> struct AppendEntriesArgs {
     // log entries to store (empty for heartbeat; may send more than one for efficiency)
     // In pratical, we'd better use LogEntry<Command> instead of Command
     // TODO: Implement LogEntry<Command>
-    std::vector<Command> entries;
+    std::vector<RaftLogEntry<Command>> entries;
     // leader's commitIndex
     int leader_commit;
 
     MSGPACK_DEFINE_ARRAY(term, leader_id, prev_log_index, prev_log_term, entries, leader_commit)
 };
 
-// TODO: UNCHECKED: This struct may be incorrect
 struct RpcAppendEntriesArgs {
 
     // leader's term
@@ -90,7 +89,15 @@ template <typename Command> RpcAppendEntriesArgs transform_append_entries_args(c
     rpc_arg.leader_commit = arg.leader_commit;
 
     for (const auto &entry : arg.entries) {
-        std::vector<u8> entry_data = entry.serialize(entry.size());
+        std::vector<u8> entry_data;
+        int term = entry.term();
+        entry_data.push_back((term >> 24) & 0xff);
+        entry_data.push_back((term >> 16) & 0xff);
+        entry_data.push_back((term >> 8) & 0xff);
+        entry_data.push_back(term & 0xff);
+
+        auto cmd_data = entry.command().serialize(entry.command().size());
+        entry_data.insert(entry_data.end(), cmd_data.begin(), cmd_data.end());
         rpc_arg.entries.insert(rpc_arg.entries.end(), entry_data.begin(), entry_data.end());
     }
 
@@ -100,8 +107,25 @@ template <typename Command> RpcAppendEntriesArgs transform_append_entries_args(c
 template <typename Command>
 AppendEntriesArgs<Command> transform_rpc_append_entries_args(const RpcAppendEntriesArgs &rpc_arg)
 {
-    /* Lab3: Your code here */
-    return AppendEntriesArgs<Command>();
+    AppendEntriesArgs<Command> arg;
+    arg.term = rpc_arg.term;
+    arg.leader_id = rpc_arg.leader_id;
+    arg.prev_log_index = rpc_arg.prev_log_index;
+    arg.prev_log_term = rpc_arg.prev_log_term;
+    arg.leader_commit = rpc_arg.leader_commit;
+
+    size_t entry_size = Command().size();
+    for (size_t i = 0; i < rpc_arg.entries.size(); i += entry_size + 4) {
+        int term = (rpc_arg.entries[i] << 24) | (rpc_arg.entries[i + 1] << 16) | (rpc_arg.entries[i + 2] << 8) |
+                   rpc_arg.entries[i + 3];
+        Command command;
+        command.deserialize(
+            std::vector<u8>(rpc_arg.entries.begin() + i + 4, rpc_arg.entries.begin() + i + 4 + entry_size), entry_size);
+        RaftLogEntry<Command> entry(term, command);
+        arg.entries.push_back(entry);
+    }
+
+    return arg;
 }
 
 struct AppendEntriesReply {

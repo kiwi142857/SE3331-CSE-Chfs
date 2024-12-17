@@ -10,6 +10,44 @@
 namespace chfs
 {
 
+template <typename Command> class RaftLogEntry
+{
+  public:
+    RaftLogEntry() : term_(0), command_(Command())
+    {
+    } // Default constructor
+    RaftLogEntry(int term, const Command &command) : term_(term), command_(command)
+    {
+    }
+    RaftLogEntry(std::vector<u8> data, int offset, int size)
+    {
+        // since the offset, the first 4 bytes are the term
+        term_ = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+        // the rest of the data is the command
+        command_.deserialize(std::vector<u8>(data.begin() + offset + 4, data.begin() + offset + 4 + size), size);
+    }
+    ~RaftLogEntry()
+    {
+    }
+
+    int term() const
+    {
+        return term_;
+    }
+    Command command() const
+    {
+        return command_;
+    }
+    size_t size() const
+    {
+        return 4 + command_.size();
+    }
+
+  private:
+    int term_;
+    Command command_;
+};
+
 /**
  * RaftLog uses a BlockManager to manage the data.
  */
@@ -24,6 +62,9 @@ template <typename Command> class RaftLog
 
     // Append a single entry to the log
     int append_entry(int term, const Command &entry);
+
+    // Append a single entry to the log
+    int append_entry(const RaftLogEntry<Command> &entry);
 
     // Check if the log contains an entry at the given index with the given term
     bool match_log(int index, int term) const;
@@ -51,10 +92,10 @@ template <typename Command> class RaftLog
     int term(int N) const;
 
     // Get the entry at the given index
-    Command get_entry(int index) const;
+    RaftLogEntry<Command> get_entry(int index) const;
 
     // Get the entries from the given index and length
-    std::vector<Command> get_entries(int index, int length) const;
+    std::vector<RaftLogEntry<Command>> get_entries(int index, int length) const;
 
     // Set the current term
     void set_current_term(int term);
@@ -65,9 +106,9 @@ template <typename Command> class RaftLog
   private:
     std::shared_ptr<BlockManager> bm_;
     mutable std::mutex mtx;
-    std::vector<std::pair<int, Command>> log_entries; // Vector to store log entries with their terms
-    int commit_idx;                                   // Index of the highest log entry known to be committed
-    int current_term_;                                // Current term
+    std::vector<RaftLogEntry<Command>> log_entries; // Vector to store log entries
+    int commit_idx;                                 // Index of the highest log entry known to be committed
+    int current_term_;                              // Current term
 };
 
 template <typename Command>
@@ -97,10 +138,17 @@ template <typename Command> int RaftLog<Command>::append_entry(int term, const C
     return log_entries.size() - 1;
 }
 
+template <typename Command> int RaftLog<Command>::append_entry(const RaftLogEntry<Command> &entry)
+{
+    std::unique_lock<std::mutex> lock(mtx);
+    log_entries.push_back(entry);
+    return log_entries.size() - 1;
+}
+
 template <typename Command> bool RaftLog<Command>::match_log(int index, int term) const
 {
     std::unique_lock<std::mutex> lock(mtx);
-    if (index < log_entries.size() && log_entries[index].first == term) {
+    if (index < log_entries.size() && log_entries[index].term() == term) {
         return true;
     }
     return false;
@@ -130,7 +178,7 @@ template <typename Command> int RaftLog<Command>::last_log_term() const
 {
     std::unique_lock<std::mutex> lock(mtx);
     if (!log_entries.empty()) {
-        return log_entries.back().first;
+        return log_entries.back().term();
     }
     return 0;
 }
@@ -151,26 +199,27 @@ template <typename Command> int RaftLog<Command>::term(int N) const
 {
     std::unique_lock<std::mutex> lock(mtx);
     if (N < log_entries.size()) {
-        return log_entries[N].first;
+        return log_entries[N].term();
     }
     return 0;
 }
 
-template <typename Command> Command RaftLog<Command>::get_entry(int index) const
+template <typename Command> RaftLogEntry<Command> RaftLog<Command>::get_entry(int index) const
 {
     std::unique_lock<std::mutex> lock(mtx);
     if (index < log_entries.size()) {
-        return log_entries[index].second;
+        return log_entries[index];
     }
-    return Command();
+    throw std::out_of_range("Index out of range");
 }
 
-template <typename Command> std::vector<Command> RaftLog<Command>::get_entries(int index, int length) const
+template <typename Command>
+std::vector<RaftLogEntry<Command>> RaftLog<Command>::get_entries(int index, int length) const
 {
     std::unique_lock<std::mutex> lock(mtx);
-    std::vector<Command> entries;
+    std::vector<RaftLogEntry<Command>> entries;
     for (int i = 0; i < length && index + i < log_entries.size(); i++) {
-        entries.push_back(log_entries[index + i].second);
+        entries.push_back(log_entries[index + i]);
     }
     return entries;
 }
