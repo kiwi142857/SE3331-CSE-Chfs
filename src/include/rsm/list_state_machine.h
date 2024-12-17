@@ -99,6 +99,12 @@ class ListStateMachine : public ChfsStateMachine
             ss >> temp;
             store.push_back(temp);
         }
+        // FOR DEBUG TMP
+        std::cerr << "apply_snapshot: ";
+        for (auto value : store) {
+            std::cerr << value << " ";
+        }
+        std::cerr << std::endl;
     }
 
     std::mutex mtx;

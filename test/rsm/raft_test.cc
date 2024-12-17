@@ -2,8 +2,8 @@
 
 #include <thread>
 
-#define TEST_DEBUG_LOG_OPEN
-#ifdef TEST_DEBUG_LOG_OPEN
+#define TEST_DEBUG_LOG_ON
+#ifdef TEST_DEBUG_LOG_ON
 #define TEST_DEBUG_LOG(x) std::cout << x << std::endl
 #else
 #define TEST_DEBUG_LOG(fmt, args...)
@@ -47,12 +47,10 @@ TEST_F(RaftTestPart1, LeaderElection)
 TEST_F(RaftTestPart1, ReElection)
 {
     InitNodes(5);
-    TEST_DEBUG_LOG("InitNodes done");
 
     /* 1. check one leader */
     mssleep(300);
     int leader1 = CheckOneLeader();
-    TEST_DEBUG_LOG("CheckOneLeader done" << " leader1: " << leader1);
 
     /* 2. stop the leader */
     DisableNode(leader1);
@@ -60,7 +58,6 @@ TEST_F(RaftTestPart1, ReElection)
 
     int leader2 = CheckOneLeader();
     EXPECT_EQ(leader1 != leader2, true) << "node " << leader2 << " shouldn't be the new leader";
-    TEST_DEBUG_LOG("CheckOneLeader2 done" << " leader2: " << leader2);
 
     /* 3. stop the second leader */
     DisableNode(leader2);
@@ -68,7 +65,6 @@ TEST_F(RaftTestPart1, ReElection)
 
     int leader3 = CheckOneLeader();
     EXPECT_EQ(leader1 != leader3 && leader3 != leader2, true) << "node " << leader3 << " shouldn't be the new leader";
-    TEST_DEBUG_LOG("CheckOneLeader3 done" << " leader3: " << leader3);
 
     /* 4. stop the third leader */
     DisableNode(leader3);
@@ -76,13 +72,11 @@ TEST_F(RaftTestPart1, ReElection)
 
     /* 5. only 2 nodes left with no leader */
     CheckNoLeader();
-    TEST_DEBUG_LOG("CheckNoLeader done");
 
     /* 6. resume a node */
     EnableNode(leader1);
     mssleep(1000);
     CheckOneLeader();
-    TEST_DEBUG_LOG("CheckOneLeader4 done" << " leader1: " << leader1);
 }
 
 class RaftTestPart2 : public RaftTest

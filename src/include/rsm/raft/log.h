@@ -51,7 +51,10 @@ template <typename Command> class RaftLog
     int term(int N) const;
 
     // Get the entry at the given index
-    Command entry(int index) const;
+    Command get_entry(int index) const;
+
+    // Get the entries from the given index and length
+    std::vector<Command> get_entries(int index, int length) const;
 
     // Set the current term
     void set_current_term(int term);
@@ -153,13 +156,23 @@ template <typename Command> int RaftLog<Command>::term(int N) const
     return 0;
 }
 
-template <typename Command> Command RaftLog<Command>::entry(int index) const
+template <typename Command> Command RaftLog<Command>::get_entry(int index) const
 {
     std::unique_lock<std::mutex> lock(mtx);
     if (index < log_entries.size()) {
         return log_entries[index].second;
     }
     return Command();
+}
+
+template <typename Command> std::vector<Command> RaftLog<Command>::get_entries(int index, int length) const
+{
+    std::unique_lock<std::mutex> lock(mtx);
+    std::vector<Command> entries;
+    for (int i = 0; i < length && index + i < log_entries.size(); i++) {
+        entries.push_back(log_entries[index + i].second);
+    }
+    return entries;
 }
 
 template <typename Command> void RaftLog<Command>::set_current_term(int term)

@@ -40,6 +40,14 @@ template <typename StateMachine, typename Command> class RaftNode
 
 // 定义宏来控制是否重定向 std::cerr
 #define REDIRECT_CERR_TO_FILE
+// 定义宏来控制是否打开日志
+#define RAFT_WARNING_ON
+// 定义宏来控制是否打开警告
+#define RAFT_LOG_ON
+// 定义宏来控制是否打开错误
+#define RAFT_ERROR_ON
+// 定义宏来控制是否打开调试
+#define RAFT_DEBUG_ON
 
 #ifdef REDIRECT_CERR_TO_FILE
 #define SET_CERR_OUTPUT(file)                                                                                          \
@@ -57,6 +65,7 @@ template <typename StateMachine, typename Command> class RaftNode
     } while (0)
 #endif
 
+#ifdef RAFT_LOG_ON
 #define RAFT_LOG(fmt, args...)                                                                                         \
     do {                                                                                                               \
         auto now =                                                                                                     \
@@ -67,22 +76,56 @@ template <typename StateMachine, typename Command> class RaftNode
                 role, ##args);                                                                                         \
         thread_pool->enqueue([=]() { std::cerr << buf; });                                                             \
     } while (0);
+#else
+#define RAFT_LOG(fmt, args...)
+#endif
 
-#define DEBUG_MODE
-#ifdef DEBUG_MODE
+#ifdef RAFT_WARNING_ON
 // use iostream to print debug info
-#define MY_DEBUG_LOG(fmt, args...)                                                                                     \
+#define RAFT_WARNING(fmt, args...)                                                                                     \
     do {                                                                                                               \
         auto now =                                                                                                     \
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()) \
                 .count();                                                                                              \
-        std::ostringstream oss;                                                                                        \
-        oss << "[" << now << "][" << __FILE__ << ":" << __LINE__ << "][node " << my_id << " term " << current_term     \
-            << "] " << fmt << "\n";                                                                                    \
-        std::cout << oss.str();                                                                                        \
+        char buf[512];                                                                                                 \
+        sprintf(buf, "[%ld][%s:%d][node %d term %d role %d] WARNING " fmt "\n", now, __FILE__, __LINE__, my_id,        \
+                current_term, role, ##args);                                                                           \
+        thread_pool->enqueue([=]() { std::cerr << buf; });                                                             \
     } while (0);
 #else
-#define MY_DEBUG_LOG(fmt, args...)
+#define RAFT_WARNING(fmt, args...)
+#endif
+
+#ifdef RAFT_ERROR_ON
+// use iostream to print debug info
+#define RAFT_ERROR(fmt, args...)                                                                                       \
+    do {                                                                                                               \
+        auto now =                                                                                                     \
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()) \
+                .count();                                                                                              \
+        char buf[512];                                                                                                 \
+        sprintf(buf, "[%ld][%s:%d][node %d term %d role %d] !!!ERROR!!! " fmt "\n", now, __FILE__, __LINE__, my_id,    \
+                current_term, role, ##args);                                                                           \
+        thread_pool->enqueue([=]() { std::cerr << buf; });                                                             \
+    } while (0);
+#else
+#define RAFT_ERROR(fmt, args...)
+#endif
+
+#ifdef RAFT_DEBUG_ON
+// use iostream to print debug info
+#define RAFT_DEBUG(fmt, args...)                                                                                       \
+    do {                                                                                                               \
+        auto now =                                                                                                     \
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()) \
+                .count();                                                                                              \
+        char buf[512];                                                                                                 \
+        sprintf(buf, "[%ld][%s:%d][node %d term %d role %d] DEBUG " fmt "\n", now, __FILE__, __LINE__, my_id,          \
+                current_term, role, ##args);                                                                           \
+        thread_pool->enqueue([=]() { std::cerr << buf; });                                                             \
+    } while (0);
+#else
+#define RAFT_DEBUG(fmt, args...)
 #endif
 
   public:
@@ -357,7 +400,7 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
             args.leader_id = my_id;
             // args.prev_log_index = log_storage->last_log_index() - 1;
             // TODO: check here
-            args.prev_log_index = nextIndex[config.node_id] - 1;
+            args.prev_log_index = log_storage->last_log_index() - 1;
             args.prev_log_term = log_storage->term(args.prev_log_index);
             args.entries = {cmd};
             args.leader_commit = log_storage->commit_index();
@@ -459,7 +502,7 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
                      "leader_commit %d",
                      config.node_id, args.term, args.prev_log_index, args.prev_log_term,
                      static_cast<int>(args.entries.size()), args.leader_commit);
-            send_append_entries(config.node_id, args);
+            thread_pool->enqueue(&RaftNode::send_append_entries, this, config.node_id, args);
         }
     }
 }
@@ -475,6 +518,7 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
         }
         // The current_term match is required to ensure that the commit index is only updated for the current term
         if (count > node_configs.size() / 2 && log_storage->term(N) == current_term) {
+            RAFT_LOG("Leader updating commit index to %d", N);
             log_storage->set_commit_index(N);
             break;
         }
@@ -488,7 +532,7 @@ void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, cons
     RAFT_LOG("Received RequestVoteReply RPC from node %d, term %d, vote_granted %d", target, reply.term,
              reply.vote_granted);
     // Warning: I notice that the function will be only called when lock is being held. So we don't need to lock again.
-    // std::unique_lock<std::mutex> lock(mtx);
+    std::unique_lock<std::mutex> lock(mtx);
 
     // Step 1: If RPC request or response contains term T > currentTerm:
     // set currentTerm = T, convert to follower (§5.1)
@@ -524,7 +568,7 @@ void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, cons
             matchIndex[i] = 0;
         }
         // Start sending heartbeats to followers
-        send_heartbeats();
+        thread_pool->enqueue(&RaftNode::send_heartbeats, this);
     }
 
     RAFT_LOG("Finished handling RequestVoteReply RPC from node %d, term %d, vote_granted %d", target, reply.term,
@@ -535,16 +579,19 @@ void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, cons
 template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_arg) -> AppendEntriesReply
 {
-    RAFT_LOG("Received AppendEntries RPC from node %d, term %d, prev_log_index %d, prev_log_term %d, entries %d, "
+    RAFT_LOG("Received AppendEntries RPC from node %d, term %d, prev_log_index %d, prev_log_term %d, entries num %d, "
              "leader_commit %d",
              rpc_arg.leader_id, rpc_arg.term, rpc_arg.prev_log_index, rpc_arg.prev_log_term,
-             static_cast<int>(rpc_arg.entries.size()), rpc_arg.leader_commit);
+             static_cast<int>(rpc_arg.entries.size() / 4), rpc_arg.leader_commit);
 
     std::unique_lock<std::mutex> lock(mtx);
 
     AppendEntriesReply reply;
     reply.term = current_term;
     reply.success = false;
+
+    // update last_heartbeat
+    last_heartbeat = std::chrono::system_clock::now();
 
     // Step 1: Reply false if term < currentTerm (§5.1)
     if (rpc_arg.term < current_term) {
@@ -555,8 +602,8 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
     // set currentTerm = T, convert to follower (§5.1)
     if (rpc_arg.term > current_term) {
         current_term = rpc_arg.term;
-        role = RaftRole::Follower;
         RAFT_LOG("rpc_arg.term > current_term, convert to follower; original role: %d", role);
+        role = RaftRole::Follower;
         voted_for = -1;
     }
 
@@ -569,21 +616,46 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
 
     // Step 4: If an existing entry conflicts with a new one (same index
     // but different terms), delete the existing entry and all that follow it (§5.3)
-    if (log_storage->match_log(rpc_arg.prev_log_index, rpc_arg.prev_log_term)) {
-        RAFT_LOG("An existing entry conflicts with a new one, delete the existing entry and all that follow it");
-        log_storage->truncate_log(rpc_arg.prev_log_index + 1);
+    if (!log_storage->match_log(rpc_arg.prev_log_index, rpc_arg.prev_log_term)) {
+        RAFT_LOG("An existing entry conflicts with a new one, delete the existing entry and all that follow it, "
+                 "rpc_arg.prev_log_index = %d, rpc_arg.prev_log_term = %d, my term = %d",
+                 rpc_arg.prev_log_index, rpc_arg.prev_log_term, log_storage->term(rpc_arg.prev_log_index));
+        log_storage->truncate_log(rpc_arg.prev_log_index);
+        // Check again to see if this truncate is enough
+        if (!log_storage->match_log(rpc_arg.prev_log_index, rpc_arg.prev_log_term)) {
+            RAFT_LOG("Truncate not enough, return false");
+            return reply;
+        }
     }
 
     // Step 5: Append any new entries not already in the log
-    std::vector<Command> commands;
-    for (const auto &entry : rpc_arg.entries) {
+    // FOR DEBUG TMP
+    if (rpc_arg.entries.size() > 4) {
+        RAFT_DEBUG("rpc_arg.entries.size() = %zu", rpc_arg.entries.size() / 4);
+        // values are as below( print in one line )
+        std::stringstream ss;
         Command cmd;
-        cmd.deserialize({entry}, cmd.size());
-        commands.push_back(cmd);
+        size_t entry_size = cmd.size();
+        for (size_t i = 0; i < rpc_arg.entries.size(); i += entry_size) {
+            std::vector<u8> entry_data(rpc_arg.entries.begin() + i, rpc_arg.entries.begin() + i + entry_size);
+            cmd.deserialize(entry_data, entry_size);
+            ss << cmd.value << ' ';
+        }
+        RAFT_DEBUG("rpc_arg.entries: %s", ss.str().c_str());
     }
-    log_storage->append_entries(commands);
-    if (!rpc_arg.entries.empty()) {
-        RAFT_LOG("Appended %d new entries to log", static_cast<int>(rpc_arg.entries.size()));
+
+    // TODO: if more than one entry per time, we may change code below
+    if ((!rpc_arg.entries.empty()) &&
+        (rpc_arg.prev_log_index + rpc_arg.entries.size() / 4 > log_storage->last_log_index())) {
+        Command cmd;
+        size_t entry_size = cmd.size();
+        for (size_t i = 0; i < rpc_arg.entries.size(); i += entry_size) {
+            std::vector<u8> entry_data(rpc_arg.entries.begin() + i, rpc_arg.entries.begin() + i + entry_size);
+            cmd.deserialize(entry_data, entry_size);
+            log_storage->append_entry(rpc_arg.term, cmd);
+            RAFT_LOG("Appended new entry to log with value= %d, with log_storage->last_log_index() = %d", cmd.value,
+                     log_storage->last_log_index());
+        }
     }
 
     // Step 6: If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry) (§5.3)
@@ -591,10 +663,6 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
         log_storage->set_commit_index(std::min(rpc_arg.leader_commit, log_storage->last_log_index()));
         RAFT_LOG("Set commitIndex to %d", log_storage->commit_index());
     }
-
-    // update last_heartbeat
-    last_heartbeat = std::chrono::system_clock::now();
-
     reply.success = true;
     return reply;
 }
@@ -605,7 +673,7 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
 {
     RAFT_LOG("Received AppendEntriesReply RPC from node %d, term %d, success %d", node_id, reply.term, reply.success);
     // Warning: I notice that the function will be only called when lock is being held. So we don't need to lock again.
-    // std::unique_lock<std::mutex> lock(mtx);
+    std::unique_lock<std::mutex> lock(mtx);
 
     // Step 1: If RPC request or response contains term T > currentTerm:
     // set currentTerm = T, convert to follower (§5.1)
@@ -624,30 +692,54 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
 
     // Step 3: If AppendEntries RPC was successful, update nextIndex and matchIndex for the follower
     if (reply.success) {
-        nextIndex[node_id] = arg.prev_log_index + arg.entries.size() + 1;
+        if (arg.entries.size() == 0) {
+            update_commit_index();
+            return;
+        }
+        // FOR DEBUG
+        if (node_id == 2) {
+            RAFT_DEBUG("nextIndex[2] = %d, nextIndex[2] will be set to %d", nextIndex[2],
+                       std::max(arg.prev_log_index + static_cast<int>(arg.entries.size()) + 1, nextIndex[node_id]));
+        }
+        nextIndex[node_id] =
+            std::max(arg.prev_log_index + static_cast<int>(arg.entries.size()) + 1, nextIndex[node_id]);
         matchIndex[node_id] = nextIndex[node_id] - 1;
+
         update_commit_index();
     } else {
+        if (arg.entries.size() == 0) {
+            update_commit_index();
+            return;
+        }
+        // FOR DEBUG TMP
+        int origin_nextIndex = nextIndex[node_id];
         // If AppendEntries RPC failed, decrement nextIndex and retry
+        // FOR DEBUG
+        if (node_id == 2) {
+            RAFT_DEBUG("nextIndex[2] = %d, nextIndex[2] will be set to %d", nextIndex[2],
+                       std::max(1, nextIndex[node_id] - 1));
+        }
         nextIndex[node_id] = std::max(1, nextIndex[node_id] - 1);
-        send_append_entries(node_id, arg);
+        AppendEntriesArgs<Command> retry_args = arg;
+        retry_args.prev_log_index = nextIndex[node_id] - 1;
+        retry_args.prev_log_term = log_storage->term(retry_args.prev_log_index);
+        retry_args.entries = log_storage->get_entries(retry_args.prev_log_index + 1, 1);
+        // FOR DEBUG TEMP
+        // print entries value here, to print in one line for easy debug, we using a stream to contain all the value
+        // with ' ' as split
+        std::stringstream ss;
+        for (const auto &entry : retry_args.entries) {
+            ss << entry.value << ' ';
+        }
+        RAFT_DEBUG("Retry with value: %s, original nextIndex = %d, new nextIndex = %d", ss.str().c_str(),
+                   origin_nextIndex, nextIndex[node_id]);
+        thread_pool->enqueue(&RaftNode::send_append_entries, this, node_id, retry_args);
     }
 
     // Step 4: If there exists an N such that N > commitIndex, a majority
     // of matchIndex[i] ≥ N, and log[N].term == currentTerm, set commitIndex = N (§5.3, §5.4)
     // TODO: check if this commit logic is correct
-    for (int N = log_storage->last_log_index(); N > log_storage->commit_index(); --N) {
-        int count = 1; // Count this node
-        for (const auto &config : node_configs) {
-            if (config.node_id != my_id && matchIndex[config.node_id] >= N) {
-                count++;
-            }
-        }
-        if (count > node_configs.size() / 2 && log_storage->term(N) == current_term) {
-            log_storage->set_commit_index(N);
-            break;
-        }
-    }
+    update_commit_index();
 }
 
 template <typename StateMachine, typename Command>
@@ -673,9 +765,9 @@ void RaftNode<StateMachine, Command>::send_request_vote(int target_id, RequestVo
     if (rpc_clients_map[target_id] == nullptr ||
         rpc_clients_map[target_id]->get_connection_state() != rpc::client::connection_state::connected) {
         if (rpc_clients_map[target_id] == nullptr) {
-            RAFT_LOG("WARNING: rpc_clients_map[%d] is nullptr", target_id);
+            RAFT_WARNING("rpc_clients_map[%d] is nullptr", target_id);
         } else {
-            RAFT_LOG("WARNING: rpc_clients_map[%d] is not connected", target_id);
+            RAFT_WARNING("rpc_clients_map[%d] is not connected", target_id);
         }
         return;
     }
@@ -686,21 +778,20 @@ void RaftNode<StateMachine, Command>::send_request_vote(int target_id, RequestVo
         handle_request_vote_reply(target_id, arg, res.unwrap()->as<RequestVoteReply>());
     } else {
         // RPC fails
-        RAFT_LOG("ERROR: RPC fails");
+        RAFT_ERROR("RPC fails");
     }
 }
 
 template <typename StateMachine, typename Command>
 void RaftNode<StateMachine, Command>::send_append_entries(int target_id, AppendEntriesArgs<Command> arg)
 {
-    RAFT_LOG("Send append entries to %d", target_id);
     std::unique_lock<std::mutex> clients_lock(clients_mtx);
     if (rpc_clients_map[target_id] == nullptr ||
         rpc_clients_map[target_id]->get_connection_state() != rpc::client::connection_state::connected) {
         if (rpc_clients_map[target_id] == nullptr) {
-            RAFT_LOG("WARNING: rpc_clients_map[%d] is nullptr", target_id);
+            RAFT_WARNING("rpc_clients_map[%d] is nullptr", target_id);
         } else {
-            RAFT_LOG("WARNING: rpc_clients_map[%d] is not connected", target_id);
+            RAFT_WARNING("rpc_clients_map[%d] is not connected", target_id);
         }
         return;
     }
@@ -723,9 +814,9 @@ void RaftNode<StateMachine, Command>::send_install_snapshot(int target_id, Insta
     if (rpc_clients_map[target_id] == nullptr ||
         rpc_clients_map[target_id]->get_connection_state() != rpc::client::connection_state::connected) {
         if (rpc_clients_map[target_id] == nullptr) {
-            RAFT_LOG("WARNING: rpc_clients_map[%d] is nullptr", target_id);
+            RAFT_WARNING("rpc_clients_map[%d] is nullptr", target_id);
         } else {
-            RAFT_LOG("WARNING: rpc_clients_map[%d] is not connected", target_id);
+            RAFT_WARNING("rpc_clients_map[%d] is not connected", target_id);
         }
         return;
     }
@@ -818,18 +909,7 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
             }
 
             // Check if there are any new entries to commit
-            for (int N = log_storage->last_log_index(); N > log_storage->commit_index(); --N) {
-                int count = 1; // Count this node
-                for (const auto &config : node_configs) {
-                    if (config.node_id != my_id && matchIndex[config.node_id] >= N) {
-                        count++;
-                    }
-                }
-                if (count > node_configs.size() / 2 && log_storage->term(N) == current_term) {
-                    log_storage->set_commit_index(N);
-                    break;
-                }
-            }
+            update_commit_index();
         }
         // Sleep for a short duration before checking again
         std::this_thread::sleep_for(std::chrono::milliseconds(run_background_commit_sleep));
@@ -856,7 +936,7 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
             // Apply all committed but not yet applied entries to the state machine
             while (log_storage->commit_index() > last_applied) {
                 last_applied++;
-                Command cmd = log_storage->entry(last_applied);
+                Command cmd = log_storage->get_entry(last_applied);
                 RAFT_LOG("Applying log at index %d to state machine with value %d", last_applied, cmd.value);
                 state->apply_log(cmd);
             }
