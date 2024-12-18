@@ -84,6 +84,10 @@ template <typename Command> RpcAppendEntriesArgs transform_append_entries_args(c
     RpcAppendEntriesArgs rpc_arg;
     rpc_arg.term = arg.term;
     rpc_arg.leader_id = arg.leader_id;
+    if (arg.leader_id > 200) {
+        std::cout << "leader_id: " << arg.leader_id << std::endl;
+    }
+    assert(rpc_arg.leader_id <= 200);
     rpc_arg.prev_log_index = arg.prev_log_index;
     rpc_arg.prev_log_term = arg.prev_log_term;
     rpc_arg.leader_commit = arg.leader_commit;

@@ -43,11 +43,11 @@ template <typename StateMachine, typename Command> class RaftNode
 // 定义宏来控制是否打开日志
 #define RAFT_WARNING_ON
 // 定义宏来控制是否打开警告
-#define RAFT_LOG_ON
+// #define RAFT_LOG_ON
 // 定义宏来控制是否打开错误
 #define RAFT_ERROR_ON
-// 定义宏来控制是否打开调试
-#define RAFT_DEBUG_ON
+    // 定义宏来控制是否打开调试
+    // #define RAFT_DEBUG_ON
 
 #ifdef REDIRECT_CERR_TO_FILE
 #define SET_CERR_OUTPUT(file)                                                                                          \
@@ -261,10 +261,6 @@ RaftNode<StateMachine, Command>::RaftNode(int node_id, std::vector<RaftNodeConfi
                      [this](InstallSnapshotArgs arg) { return this->install_snapshot(arg); });
 
     /* Lab3: Your code here */
-
-    // Initialise log storage
-    log_storage = std::make_unique<RaftLog<Command>>(std::make_shared<BlockManager>(block_file));
-
     // Initialise state machine
     state = std::make_unique<StateMachine>();
 
@@ -401,6 +397,10 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
 
     // Append the command to the log
     int log_index = log_storage->append_entry(current_term, cmd);
+    // use a thread pool to save the log
+    // log_storage->save_log();
+    thread_pool->enqueue(&RaftLog<Command>::save_log, log_storage.get());
+
     RAFT_LOG("Appended new command to log at index %d", log_index);
 
     // Send AppendEntries RPCs to all followers
@@ -506,7 +506,7 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
             args.term = current_term;
             args.leader_id = my_id;
             // args.prev_log_index = log_storage->last_log_index();
-            // TODO: check here
+            // TODO: check here whether it should be last_log_index - 1
             args.prev_log_index = nextIndex[config.node_id] - 1;
             args.prev_log_term = log_storage->term(args.prev_log_index);
             args.entries = {}; // Empty entries for heartbeat
@@ -623,6 +623,18 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
         log_storage->save_metadata(current_term, voted_for);
     }
 
+    // Step 3: If this is a heartbeat, return true
+    if (rpc_arg.entries.empty()) {
+        RAFT_LOG("Received heartbeat from node %d", rpc_arg.leader_id);
+        if (rpc_arg.leader_commit > log_storage->commit_index()) {
+            int commit_index = std::min(rpc_arg.leader_commit, rpc_arg.prev_log_index);
+            log_storage->set_commit_index(std::min(commit_index, log_storage->last_log_index()));
+            RAFT_LOG("Set commitIndex to %d", log_storage->commit_index());
+        }
+        reply.success = true;
+        return reply;
+    }
+
     // Step 3: Reply false if log doesn’t contain an entry at prevLogIndex
     // whose term matches prevLogTerm (§5.3)
     if (!log_storage->contain_index(rpc_arg.prev_log_index)) {
@@ -637,6 +649,8 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
                  "rpc_arg.prev_log_index = %d, rpc_arg.prev_log_term = %d, my term = %d",
                  rpc_arg.prev_log_index, rpc_arg.prev_log_term, log_storage->term(rpc_arg.prev_log_index));
         log_storage->truncate_log(rpc_arg.prev_log_index);
+        thread_pool->enqueue(&RaftLog<Command>::save_log, log_storage.get());
+
         // Check again to see if this truncate is enough
         if (!log_storage->match_log(rpc_arg.prev_log_index, rpc_arg.prev_log_term)) {
             RAFT_LOG("Truncate not enough, return false");
@@ -667,9 +681,28 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
         RaftLogEntry<Command> entry;
         size_t entry_size = entry.size();
         size_t cmd_size = cmd.size();
+        int log_index_offset = 0;
         for (size_t i = 0; i < rpc_arg.entries.size(); i += entry_size) {
             RaftLogEntry<Command> entry(rpc_arg.entries, i, cmd_size);
+
+            log_index_offset++;
+            // Add a check here to avoid duplicate entries
+            if ((log_storage->last_log_index() >= rpc_arg.prev_log_index + log_index_offset) &&
+                (log_storage->last_log_index() >= 1)) {
+                if (log_storage->term(rpc_arg.prev_log_index + log_index_offset) == entry.term()) {
+                    RAFT_LOG("Duplicate entry found at index %d, term %d", rpc_arg.prev_log_index + log_index_offset,
+                             entry.term());
+                    continue;
+                } else {
+                    RAFT_LOG("Overwriting entry at index %d, term %d", rpc_arg.prev_log_index + log_index_offset,
+                             entry.term());
+                    // We have to truncate the log from the conflicting entry
+                    log_storage->truncate_log(rpc_arg.prev_log_index + log_index_offset);
+                }
+            }
+
             log_storage->append_entry(entry);
+            thread_pool->enqueue(&RaftLog<Command>::save_log, log_storage.get());
             RAFT_LOG("Appended new entry to log at index %d, term %d, value %d", log_storage->last_log_index(),
                      log_storage->last_log_term(), entry.command().value);
         }
@@ -722,7 +755,7 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
         matchIndex[node_id] = nextIndex[node_id] - 1;
     } else {
         // FOR DEBUG TMP
-        int origin_nextIndex = nextIndex[node_id];
+        [[maybe_unused]] int origin_nextIndex = nextIndex[node_id];
         // If AppendEntries RPC failed, decrement nextIndex and retry
         // FOR DEBUG
         // if (node_id == 2) {
@@ -738,6 +771,7 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
         retry_args.entries = log_storage->get_entries(retry_args.prev_log_index + 1,
                                                       log_storage->last_log_index() - retry_args.prev_log_index);
         retry_args.leader_commit = log_storage->commit_index();
+        retry_args.leader_id = my_id;
         // FOR DEBUG TEMP
         // print entries value here, to print in one line for easy debug, we using a stream to contain all the value
         // with ' ' as split
@@ -786,6 +820,8 @@ void RaftNode<StateMachine, Command>::send_request_vote(int target_id, RequestVo
         return;
     }
 
+    RAFT_DEBUG("Send request vote to %d, term %d, candidate_id %d, last_log_index %d, last_log_term %d", target_id,
+               arg.term, arg.candidate_id, arg.last_log_index, arg.last_log_term);
     auto res = rpc_clients_map[target_id]->call(RAFT_RPC_REQUEST_VOTE, arg);
     clients_lock.unlock();
     if (res.is_ok()) {
@@ -1074,7 +1110,7 @@ template <typename StateMachine, typename Command> int RaftNode<StateMachine, Co
 
 template <typename StateMachine, typename Command> int RaftNode<StateMachine, Command>::rpc_count()
 {
-    int sum = 0;
+    int sum = -2;
     std::unique_lock<std::mutex> clients_lock(clients_mtx);
 
     for (auto &&client : rpc_clients_map) {
@@ -1083,7 +1119,7 @@ template <typename StateMachine, typename Command> int RaftNode<StateMachine, Co
         }
     }
 
-    return sum;
+    return sum > 0 ? sum : 0;
 }
 
 template <typename StateMachine, typename Command>

@@ -54,7 +54,7 @@ template <typename Command> class RaftLogEntry
 /**
  * RaftLog uses a BlockManager to manage the data.
  */
-template <typename Command> class RaftLog
+template <typename Command> class RaftLog : public std::enable_shared_from_this<RaftLog<Command>>
 {
   public:
     RaftLog(std::shared_ptr<BlockManager> bm);
@@ -146,6 +146,12 @@ template <typename Command> class RaftLog
 
     // Recover
     void recover();
+
+    // get itself
+    std::shared_ptr<RaftLog<Command>> get()
+    {
+        return this->shared_from_this();
+    }
 
   private:
     std::shared_ptr<BlockManager> bm_;
@@ -338,8 +344,13 @@ template <typename Command> RaftLogEntry<Command> RaftLog<Command>::get_entry(in
     if (index < log_entries.size()) {
         return log_entries[index];
     }
-    throw std::out_of_range("Index out of range with index: " + std::to_string(index) +
-                            " and log size: " + std::to_string(log_entries.size()));
+    try {
+        throw std::out_of_range("Index out of range with index: " + std::to_string(index) +
+                                " and log size: " + std::to_string(log_entries.size()));
+    } catch (const std::out_of_range &e) {
+        std::cerr << e.what() << std::endl;
+        return RaftLogEntry<Command>();
+    }
 }
 
 template <typename Command>
@@ -419,7 +430,7 @@ template <typename Command> void RaftLog<Command>::save_log() const
         data.push_back((entry.term() >> 16) & 0xff);
         data.push_back((entry.term() >> 8) & 0xff);
         data.push_back(entry.term() & 0xff);
-        auto command_data = entry.command().serialize();
+        auto command_data = entry.command().serialize(entry.command().size());
         data.insert(data.end(), command_data.begin(), command_data.end());
     }
     file_op_->write_file(log_inode, data);
@@ -440,7 +451,9 @@ template <typename Command> void RaftLog<Command>::recover()
 {
     std::unique_lock<std::mutex> lock(mtx);
     recover_metadata();
+    RAFT_FILE_OP_ERROR("Recovered metadata: term %d, voted_for %d", current_term_, voted_for_);
     recover_log();
+    RAFT_FILE_OP_ERROR("Recovered log: size %zu", log_entries.size());
     recover_snapshot();
 }
 

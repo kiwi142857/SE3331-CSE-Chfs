@@ -506,6 +506,8 @@ class RaftTestPart3 : public RaftTest
                     nup++;
                 }
             }
+
+            TEST_DEBUG_LOG("iters: " << iters);
         }
 
         for (int i = 0; i < num_nodes; i++) {
@@ -595,6 +597,7 @@ TEST_F(RaftTestPart3, MorePersistence)
 
         EnableNode((leader1 + 0) % num_nodes);
         EnableNode((leader1 + 4) % num_nodes);
+        TEST_DEBUG_LOG("index: " << index);
     }
     ASSERT_GE(AppendNewCommand(1000, num_nodes), 0);
     ASSERT_GE(WaitCommit(index, num_nodes, -1), 0);
