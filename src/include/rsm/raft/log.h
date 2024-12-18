@@ -8,10 +8,18 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 #include <vector>
 
 namespace chfs
 {
+
+void assert_with_message(bool condition, const std::string &message)
+{
+    if (!condition) {
+        throw std::runtime_error(message);
+    }
+}
 
 template <typename Command> class RaftLogEntry
 {
@@ -165,6 +173,7 @@ template <typename Command> class RaftLog : public std::enable_shared_from_this<
     std::vector<u8> node_snapshot;                  // Snapshot of the node
     int snapshot_index;                             // Index of the snapshot
     int snapshot_term;                              // Term of the snapshot
+    int last_snapshot_term;                         // Term of the last snapshot
 
     // Recover the log from the given file
     void recover_log();
@@ -178,7 +187,8 @@ template <typename Command> class RaftLog : public std::enable_shared_from_this<
 
 template <typename Command>
 RaftLog<Command>::RaftLog(std::shared_ptr<BlockManager> bm)
-    : bm_(bm), commit_idx(0), current_term_(0), voted_for_(-1), max_inode_num(max_inode_num_)
+    : bm_(bm), commit_idx(0), current_term_(0), voted_for_(-1), max_inode_num(max_inode_num_), snapshot_index(0),
+      snapshot_term(0)
 {
     // Append an empty log entry at the beginning
     log_entries.emplace_back(0, Command());
@@ -186,7 +196,8 @@ RaftLog<Command>::RaftLog(std::shared_ptr<BlockManager> bm)
 
 template <typename Command>
 RaftLog<Command>::RaftLog(std::shared_ptr<BlockManager> bm, bool is_recovery)
-    : bm_(bm), commit_idx(0), current_term_(0), voted_for_(-1), max_inode_num(max_inode_num_)
+    : bm_(bm), commit_idx(0), current_term_(0), voted_for_(-1), max_inode_num(max_inode_num_), snapshot_index(0),
+      snapshot_term(0)
 {
     // Append an empty log entry at the beginning
     log_entries.emplace_back(0, Command());
@@ -233,19 +244,22 @@ template <typename Command> int RaftLog<Command>::append_entry(int term, const C
 {
     std::unique_lock<std::mutex> lock(mtx);
     log_entries.emplace_back(term, entry);
-    return log_entries.size() - 1;
+    return log_entries.size() - 1 + snapshot_index;
 }
 
 template <typename Command> int RaftLog<Command>::append_entry(const RaftLogEntry<Command> &entry)
 {
     std::unique_lock<std::mutex> lock(mtx);
     log_entries.push_back(entry);
-    return log_entries.size() - 1;
+    return log_entries.size() - 1 + snapshot_index;
 }
 
 template <typename Command> bool RaftLog<Command>::match_log(int index, int term) const
 {
     std::unique_lock<std::mutex> lock(mtx);
+    assert_with_message(index >= snapshot_index,
+                        "Index: " + std::to_string(index) + " Snapshot index: " + std::to_string(snapshot_index));
+    index -= snapshot_index;
     if (index < log_entries.size() && log_entries[index].term() == term) {
         return true;
     }
@@ -255,12 +269,27 @@ template <typename Command> bool RaftLog<Command>::match_log(int index, int term
 template <typename Command> bool RaftLog<Command>::contain_index(int index) const
 {
     std::unique_lock<std::mutex> lock(mtx);
+    assert_with_message(index >= snapshot_index,
+                        "Index: " + std::to_string(index) + " Snapshot index: " + std::to_string(snapshot_index));
+
+    index -= snapshot_index;
     return index < log_entries.size();
 }
 
 template <typename Command> void RaftLog<Command>::truncate_log(int index)
 {
     std::unique_lock<std::mutex> lock(mtx);
+    assert_with_message(index >= snapshot_index,
+                        "Index: " + std::to_string(index) + " Snapshot index: " + std::to_string(snapshot_index));
+
+    index -= snapshot_index;
+    if (index == 0) {
+        last_snapshot_term = log_entries.back().term();
+        RaftLogEntry<Command> entry = log_entries.back();
+        log_entries.resize(0);
+        log_entries.push_back(entry);
+        return;
+    }
     if (index < log_entries.size()) {
         log_entries.resize(index);
     }
@@ -269,7 +298,7 @@ template <typename Command> void RaftLog<Command>::truncate_log(int index)
 template <typename Command> int RaftLog<Command>::last_log_index() const
 {
     std::unique_lock<std::mutex> lock(mtx);
-    return log_entries.size() - 1;
+    return log_entries.size() - 1 + snapshot_index;
 }
 
 template <typename Command> int RaftLog<Command>::last_log_term() const
@@ -296,6 +325,9 @@ template <typename Command> void RaftLog<Command>::set_commit_index(int index)
 template <typename Command> int RaftLog<Command>::term(int N) const
 {
     std::unique_lock<std::mutex> lock(mtx);
+    assert_with_message(N >= snapshot_index,
+                        "N: " + std::to_string(N) + " Snapshot index: " + std::to_string(snapshot_index));
+    N -= snapshot_index;
     if (N < log_entries.size()) {
         return log_entries[N].term();
     }
@@ -341,6 +373,9 @@ template <typename Command> void RaftLog<Command>::set_snapshot_term(int term)
 template <typename Command> RaftLogEntry<Command> RaftLog<Command>::get_entry(int index) const
 {
     std::unique_lock<std::mutex> lock(mtx);
+    assert_with_message(index >= snapshot_index,
+                        "Index: " + std::to_string(index) + " Snapshot index: " + std::to_string(snapshot_index));
+    index -= snapshot_index;
     if (index < log_entries.size()) {
         return log_entries[index];
     }
@@ -358,6 +393,10 @@ std::vector<RaftLogEntry<Command>> RaftLog<Command>::get_entries(int index, int 
 {
     std::unique_lock<std::mutex> lock(mtx);
     std::vector<RaftLogEntry<Command>> entries;
+    assert_with_message(index >= snapshot_index,
+                        "Index: " + std::to_string(index) + " Snapshot index: " + std::to_string(snapshot_index));
+
+    index -= snapshot_index;
     for (int i = 0; i < length && index + i < log_entries.size(); i++) {
         entries.push_back(log_entries[index + i]);
     }
@@ -440,10 +479,21 @@ template <typename Command> void RaftLog<Command>::save_snapshot() const
 {
     std::unique_lock<std::mutex> lock(mtx);
     std::vector<u8> data;
-    data.push_back((commit_idx >> 24) & 0xff);
-    data.push_back((commit_idx >> 16) & 0xff);
-    data.push_back((commit_idx >> 8) & 0xff);
-    data.push_back(commit_idx & 0xff);
+
+    // first 4 bytes are the term
+    data.push_back((snapshot_term >> 24) & 0xff);
+    data.push_back((snapshot_term >> 16) & 0xff);
+    data.push_back((snapshot_term >> 8) & 0xff);
+    data.push_back(snapshot_term & 0xff);
+
+    // second 4 bytes are the index
+    data.push_back((snapshot_index >> 24) & 0xff);
+    data.push_back((snapshot_index >> 16) & 0xff);
+    data.push_back((snapshot_index >> 8) & 0xff);
+    data.push_back(snapshot_index & 0xff);
+
+    // the rest of the data is the snapshot
+    data.insert(data.end(), node_snapshot.begin(), node_snapshot.end());
     file_op_->write_file(snapshot_inode, data);
 }
 
@@ -498,10 +548,13 @@ template <typename Command> void RaftLog<Command>::recover_snapshot()
         RAFT_FILE_OP_ERROR("Failed to read snapshot: %d", res.unwrap_error());
     }
     data = res.unwrap();
-    node_snapshot = data;
-    snapshot_term = log_entries[0].term();
-    // TODO: fix here
-    snapshot_index = 0;
+    if (data.size() < 8) {
+        RAFT_FILE_OP_ERROR("Snapshot data is too short: %zu", data.size());
+        return;
+    }
+    snapshot_term = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
+    snapshot_index = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
+    node_snapshot = std::vector<u8>(data.begin() + 8, data.end());
 }
 
 } // namespace chfs

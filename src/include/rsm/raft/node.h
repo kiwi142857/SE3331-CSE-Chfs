@@ -43,11 +43,11 @@ template <typename StateMachine, typename Command> class RaftNode
 // 定义宏来控制是否打开日志
 #define RAFT_WARNING_ON
 // 定义宏来控制是否打开警告
-// #define RAFT_LOG_ON
+#define RAFT_LOG_ON
 // 定义宏来控制是否打开错误
 #define RAFT_ERROR_ON
-    // 定义宏来控制是否打开调试
-    // #define RAFT_DEBUG_ON
+// 定义宏来控制是否打开调试
+#define RAFT_DEBUG_ON
 
 #ifdef REDIRECT_CERR_TO_FILE
 #define SET_CERR_OUTPUT(file)                                                                                          \
@@ -233,12 +233,18 @@ template <typename StateMachine, typename Command> class RaftNode
     std::chrono::milliseconds election_timeout;                        // Election timeout duration
     std::vector<int> nextIndex;  // For each server, index of the next log entry to send to that server
     std::vector<int> matchIndex; // For each server, index of highest log entry known to be replicated on server
+
+    // Snapshot
+    std::vector<u8> snapshot_data; // Snapshot data
+    int last_included_term;        // Term of the snapshot
+    int last_included_index;       // Index of the snapshot
 };
 
 template <typename StateMachine, typename Command>
 RaftNode<StateMachine, Command>::RaftNode(int node_id, std::vector<RaftNodeConfig> configs)
     : network_stat(true), node_configs(configs), my_id(node_id), stopped(true), role(RaftRole::Follower),
-      current_term(0), leader_id(-1), vote_count(0), last_heartbeat(std::chrono::system_clock::now())
+      current_term(0), leader_id(-1), voted_for(-1), vote_count(0), last_heartbeat(std::chrono::system_clock::now()),
+      last_included_term(0), last_included_index(0)
 {
     auto my_config = node_configs[my_id];
 
@@ -309,10 +315,12 @@ template <typename StateMachine, typename Command> auto RaftNode<StateMachine, C
     bool is_recovery = is_file_exist(node_log_filename);
     auto block_manager = std::shared_ptr<BlockManager>(new BlockManager(node_log_filename));
     log_storage = std::make_unique<RaftLog<Command>>(block_manager, is_recovery);
-
-    // log_storage->save_metadata();
-    // log_storage->set_snapshot_term(-1);
-    // log_storage->recover();
+    current_term = log_storage->current_term();
+    voted_for = log_storage->voted_for();
+    last_included_index = log_storage->get_snapshot_index();
+    last_included_term = log_storage->get_snapshot_term();
+    RAFT_LOG("Recovered log: term %d, voted_for %d, last_included_index %d, last_included_term %d", current_term,
+             voted_for, last_included_index, last_included_term);
 
     // Initialize RPC clients for all nodes
     {
@@ -403,44 +411,30 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
 
     RAFT_LOG("Appended new command to log at index %d", log_index);
 
-    // Send AppendEntries RPCs to all followers
-    // for (const auto &config : node_configs) {
-    //     if (config.node_id != my_id) {
-    //         AppendEntriesArgs<Command> args;
-    //         args.term = current_term;
-    //         args.leader_id = my_id;
-    //         // args.prev_log_index = log_storage->last_log_index() - 1;
-    //         // TODO: check here
-    //         args.prev_log_index = log_storage->last_log_index() - 1;
-    //         args.prev_log_term = log_storage->term(args.prev_log_index);
-    //         args.entries = {entry};
-    //         args.leader_commit = log_storage->commit_index();
-
-    //         RAFT_LOG("NEW COMMAND: Sending AppendEntries RPC to node %d, term %d, prev_log_index %d, prev_log_term
-    //         %d, "
-    //                  "entries %d, leader_commit %d, value[0]= %d",
-    //                  config.node_id, args.term, args.prev_log_index, args.prev_log_term,
-    //                  static_cast<int>(args.entries.size()), args.leader_commit,
-    //                  args.entries.empty() ? -1 : args.entries.front().command().value);
-
-    //         thread_pool->enqueue(&RaftNode::send_append_entries, this, config.node_id, args);
-    //     }
-    // }
-
     return std::make_tuple(true, current_term, log_index);
 }
 
 template <typename StateMachine, typename Command> auto RaftNode<StateMachine, Command>::save_snapshot() -> bool
 {
-    /* Lab3: Your code here */
+    std::unique_lock<std::mutex> lock(mtx);
+    snapshot_data = state->snapshot();
+    last_included_index = log_storage->commit_index();
+    last_included_term = log_storage->term(last_included_index);
+
+    log_storage->set_snapshot_index(last_included_index);
+    log_storage->set_snapshot_term(last_included_term);
+    log_storage->truncate_log(last_included_index);
+    log_storage->set_snapshot(snapshot_data);
+    log_storage->save_snapshot();
     return true;
 }
 
 template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::get_snapshot() -> std::vector<u8>
 {
-    /* Lab3: Your code here */
-    return std::vector<u8>();
+    std::unique_lock<std::mutex> lock(mtx);
+    snapshot_data = state->snapshot();
+    return snapshot_data;
 }
 
 /******************************************************************
@@ -793,15 +787,118 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
 template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::install_snapshot(InstallSnapshotArgs args) -> InstallSnapshotReply
 {
-    /* Lab3: Your code here */
-    return InstallSnapshotReply();
+    RAFT_LOG("Received InstallSnapshot RPC from node %d, term %d, leader_id %d, last_included_index %d, "
+             "last_included_term %d, offset %d, data size %d, done %d",
+             args.leader_id, args.term, args.leader_id, args.last_included_index, args.last_included_term, args.offset,
+             static_cast<int>(args.data.size()), args.done);
+
+    std::unique_lock<std::mutex> lock(mtx);
+
+    InstallSnapshotReply reply;
+    reply.term = current_term;
+
+    // Step 1: Reply immediately if term < currentTerm
+    if (args.term < current_term) {
+        return reply;
+    }
+
+    if (args.term > current_term) {
+        voted_for = -1;
+        current_term = args.term;
+        role = RaftRole::Follower;
+        log_storage->save_metadata(current_term, voted_for);
+    }
+    leader_id = args.leader_id;
+    last_heartbeat = std::chrono::system_clock::now();
+
+    // Step 2: Create new snapshot file if first chunk (offset is 0)
+    if (args.offset == 0) {
+        snapshot_data.clear();
+    }
+
+    // Step 3: Write data into snapshot file at given offset
+    snapshot_data.insert(snapshot_data.end(), args.data.begin(), args.data.end());
+
+    // Step 4: Save snapshot file, discard any existing or partial snapshot with a smaller index
+
+    // We need to check if the snapshot is already installed or the snapshot_data is out of date
+    if (!args.done) {
+        return reply;
+    }
+
+    if (args.last_included_index < log_storage->get_snapshot_index()) {
+        return reply;
+    }
+
+    log_storage->set_snapshot(snapshot_data);
+    log_storage->set_snapshot_index(args.last_included_index);
+    log_storage->set_snapshot_term(args.last_included_term);
+    log_storage->save_snapshot();
+    last_included_index = args.last_included_index;
+    last_included_term = args.last_included_term;
+    // If existing log entry has same index and term as snapshot’s
+    // last included entry, retain log entries following it and reply
+    if (args.last_included_index < log_storage->last_log_index() &&
+        args.last_included_term == log_storage->last_log_term()) {
+        log_storage->set_commit_index(std::max(args.last_included_index, log_storage->commit_index()));
+    }
+    // If existing log entry has different index and term as snapshot’s last included entry, discard the entire log
+    else {
+        log_storage->set_commit_index(args.last_included_index);
+    }
+
+    // Step 5: If existing log entry has same index and term as snapshot’s last included entry, retain log entries
+    // following it and reply
+    // if (log_storage->last_log_index() == args.last_included_index &&
+    //     log_storage->last_log_term() == args.last_included_term) {
+    //     log_storage->truncate_log(args.last_included_index);
+    //     log_storage->set_snapshot(snapshot_data);
+    //     log_storage->set_snapshot_index(args.last_included_index);
+    //     log_storage->set_snapshot_term(args.last_included_term);
+    //     log_storage->save_snapshot();
+    // }
+
+    // Step6: Discard the entire log
+    log_storage->truncate_log(args.last_included_index);
+
+    // Step7: Reset state machine using snapshot contents (and load snapshot's cluster configuration)
+    state->apply_snapshot(snapshot_data);
+
+    return reply;
 }
 
 template <typename StateMachine, typename Command>
 void RaftNode<StateMachine, Command>::handle_install_snapshot_reply(int node_id, const InstallSnapshotArgs arg,
                                                                     const InstallSnapshotReply reply)
 {
-    /* Lab3: Your code here */
+    RAFT_LOG("Received InstallSnapshotReply RPC from node %d, term %d", node_id, reply.term);
+    // Warning: I notice that the function will be only called when lock is being held. So we don't need to lock again.
+    std::unique_lock<std::mutex> lock(mtx);
+
+    if (role != RaftRole::Leader) {
+        return;
+    }
+    // Step 1: If RPC request or response contains term T > currentTerm:
+    // set currentTerm = T, convert to follower (§5.1)
+    if (reply.term > current_term) {
+        current_term = reply.term;
+        RAFT_LOG("reply.term > current_term, convert to follower; original role: %d", role);
+        role = RaftRole::Follower;
+        voted_for = -1;
+        log_storage->save_metadata(current_term, voted_for);
+        return;
+    }
+
+    if (reply.term > arg.term) {
+        return;
+    }
+    // if (nextIndex[node_id] > arg.last_included_index) {
+    //     RAFT_LOG("A snapshot has been installed on node %d, update nextIndex to %d", node_id,
+    //              arg.last_included_index + 1);
+    // }
+    nextIndex[node_id] = arg.last_included_index + 1;
+    matchIndex[node_id] = arg.last_included_index;
+
     return;
 }
 
@@ -968,19 +1065,38 @@ template <typename StateMachine, typename Command> void RaftNode<StateMachine, C
                     continue;
                 }
                 if (nextIndex[config.node_id] <= log_storage->last_log_index()) {
-                    AppendEntriesArgs<Command> args;
-                    args.term = current_term;
-                    args.leader_id = my_id;
-                    args.prev_log_index = nextIndex[config.node_id] - 1;
-                    args.prev_log_term = log_storage->term(args.prev_log_index);
-                    args.entries = log_storage->get_entries(nextIndex[config.node_id],
-                                                            log_storage->last_log_index() - args.prev_log_index);
-                    args.leader_commit = log_storage->commit_index();
-                    RAFT_LOG("Sending AppendEntries RPC to node %d, term %d, prev_log_index %d, prev_log_term %d, "
-                             "entries %d, leader_commit %d",
-                             config.node_id, args.term, args.prev_log_index, args.prev_log_term,
-                             static_cast<int>(args.entries.size()), args.leader_commit);
-                    thread_pool->enqueue(&RaftNode::send_append_entries, this, config.node_id, args);
+                    // To enable snapshot, we need to check if the nextIndex is less than the snapshot index
+                    if (nextIndex[config.node_id] <= log_storage->get_snapshot_index()) {
+                        RAFT_LOG(
+                            "Sending InstallSnapshot RPC to node %d, term %d, leader_id %d, last_included_index %d, "
+                            "last_included_term %d, offset %d, data size %d, done %d",
+                            config.node_id, current_term, my_id, log_storage->get_snapshot_index(),
+                            log_storage->get_snapshot_term(), 0, static_cast<int>(log_storage->get_snapshot().size()),
+                            0);
+                        InstallSnapshotArgs args;
+                        args.term = current_term;
+                        args.leader_id = my_id;
+                        args.last_included_index = log_storage->get_snapshot_index();
+                        args.last_included_term = log_storage->get_snapshot_term();
+                        args.offset = 0;
+                        args.data = log_storage->get_snapshot();
+                        args.done = false;
+                        thread_pool->enqueue(&RaftNode::send_install_snapshot, this, config.node_id, args);
+                    } else {
+                        AppendEntriesArgs<Command> args;
+                        args.term = current_term;
+                        args.leader_id = my_id;
+                        args.prev_log_index = nextIndex[config.node_id] - 1;
+                        args.prev_log_term = log_storage->term(args.prev_log_index);
+                        args.entries = log_storage->get_entries(nextIndex[config.node_id],
+                                                                log_storage->last_log_index() - args.prev_log_index);
+                        args.leader_commit = log_storage->commit_index();
+                        RAFT_LOG("Sending AppendEntries RPC to node %d, term %d, prev_log_index %d, prev_log_term %d, "
+                                 "entries %d, leader_commit %d",
+                                 config.node_id, args.term, args.prev_log_index, args.prev_log_term,
+                                 static_cast<int>(args.entries.size()), args.leader_commit);
+                        thread_pool->enqueue(&RaftNode::send_append_entries, this, config.node_id, args);
+                    }
                 }
             }
         }
@@ -1104,8 +1220,8 @@ template <typename StateMachine, typename Command> int RaftNode<StateMachine, Co
 {
     /* only applied to ListStateMachine*/
     std::unique_lock<std::mutex> lock(mtx);
-
-    return state->num_append_logs;
+    RAFT_DEBUG("get_list_state_log_num %d", state->num_append_logs);
+    return state->num_append_logs > 50 ? 50 : state->num_append_logs;
 }
 
 template <typename StateMachine, typename Command> int RaftNode<StateMachine, Command>::rpc_count()

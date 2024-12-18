@@ -701,12 +701,15 @@ TEST_F(RaftTestPart4, BasicSnapshot)
     for (int i = 1; i < 100; i++) {
         ASSERT_EQ(tmp_sm.store[i], i + 100);
     }
+    TEST_DEBUG_LOG("snapshot works");
 
     leader = CheckOneLeader();
     ASSERT_GE(leader, 0);
     int other_node = (leader + 1) % num_nodes;
     if (other_node == killed_node)
         other_node = (leader + 2) % num_nodes;
+
+    TEST_DEBUG_LOG("leader: " << leader << ", killed_node: " << killed_node << ", other_node: " << other_node);
 
     auto res1 = clients[leader]->call(RAFT_RPC_SAVE_SNAPSHOT);
     ASSERT_TRUE(res1.unwrap()->as<bool>()) << "leader cannot save snapshot";
