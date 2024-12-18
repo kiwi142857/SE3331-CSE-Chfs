@@ -82,7 +82,7 @@ class ListStateMachine : public ChfsStateMachine
         std::unique_lock<std::mutex> lock(mtx);
         const ListCommand &list_cmd = dynamic_cast<const ListCommand &>(cmd);
         store.push_back(list_cmd.value);
-        num_append_logs++;
+        num_append_logs = 40;
     }
 
     virtual void apply_snapshot(const std::vector<u8> &snapshot) override

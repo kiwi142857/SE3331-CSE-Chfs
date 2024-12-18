@@ -1220,13 +1220,12 @@ template <typename StateMachine, typename Command> int RaftNode<StateMachine, Co
 {
     /* only applied to ListStateMachine*/
     std::unique_lock<std::mutex> lock(mtx);
-    RAFT_DEBUG("get_list_state_log_num %d", state->num_append_logs);
-    return state->num_append_logs > 50 ? 50 : state->num_append_logs;
+    return state->num_append_logs;
 }
 
 template <typename StateMachine, typename Command> int RaftNode<StateMachine, Command>::rpc_count()
 {
-    int sum = -2;
+    int sum = 0;
     std::unique_lock<std::mutex> clients_lock(clients_mtx);
 
     for (auto &&client : rpc_clients_map) {
@@ -1235,7 +1234,7 @@ template <typename StateMachine, typename Command> int RaftNode<StateMachine, Co
         }
     }
 
-    return sum > 0 ? sum : 0;
+    return sum;
 }
 
 template <typename StateMachine, typename Command>
