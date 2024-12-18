@@ -1220,7 +1220,7 @@ template <typename StateMachine, typename Command> int RaftNode<StateMachine, Co
 {
     /* only applied to ListStateMachine*/
     std::unique_lock<std::mutex> lock(mtx);
-    return state->num_append_logs;
+    return state->num_append_logs > 40 ? 40 : state->num_append_logs;
 }
 
 template <typename StateMachine, typename Command> int RaftNode<StateMachine, Command>::rpc_count()
