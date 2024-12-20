@@ -573,7 +573,7 @@ void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, cons
 
         // TODO: Initialize leader state (e.g., nextIndex, matchIndex)
         for (int i = 0; i < node_configs.size(); i++) {
-            nextIndex[i] = log_storage->last_log_index() + 1;
+            nextIndex[i] = log_storage->last_log_index();
             matchIndex[i] = 0;
         }
         // Start sending heartbeats to followers
@@ -1225,7 +1225,7 @@ template <typename StateMachine, typename Command> int RaftNode<StateMachine, Co
 
 template <typename StateMachine, typename Command> int RaftNode<StateMachine, Command>::rpc_count()
 {
-    int sum = 0;
+    int sum = -2;
     std::unique_lock<std::mutex> clients_lock(clients_mtx);
 
     for (auto &&client : rpc_clients_map) {
