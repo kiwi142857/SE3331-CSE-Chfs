@@ -29,7 +29,8 @@
 #endif
 
 #ifdef DEERROR
-#define ERROR_LOG(x) std::cerr << "ERROR" x << __LINE__ << " in " << __func__ << std::endl
+#define ERROR_LOG(x)                                                                                                   \
+    std::cerr << "ERROR: " << x << " in line " << __LINE__ << " in " << __func__ << "in " << __FILE__ << std::endl
 #else
 #define ERROR_LOG(x)
 #endif

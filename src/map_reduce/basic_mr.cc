@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -19,7 +20,21 @@ std::vector<KeyVal> Map(const std::string &content)
 {
     // Your code goes here
     // Hints: split contents into an array of words.
+    std::unordered_map<std::string, int> word_count;
+    std::regex word_regex("([a-zA-Z]+)");
+    auto words_begin = std::sregex_iterator(content.begin(), content.end(), word_regex);
+    auto words_end = std::sregex_iterator();
+
+    for (std::sregex_iterator i = words_begin; i != words_end; ++i) {
+        std::smatch match = *i;
+        std::string word = match.str();
+        word_count[word]++;
+    }
+
     std::vector<KeyVal> ret;
+    for (const auto &pair : word_count) {
+        ret.emplace_back(pair.first, std::to_string(pair.second));
+    }
     return ret;
 }
 
@@ -32,7 +47,10 @@ std::string Reduce(const std::string &key, const std::vector<std::string> &value
 {
     // Your code goes here
     // Hints: return the number of occurrences of the word.
-    std::string ret = "0";
-    return ret;
+    int count = 0;
+    for (const auto &value : values) {
+        count += std::stoi(value);
+    }
+    return std::to_string(count);
 }
 } // namespace mapReduce
