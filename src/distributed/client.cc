@@ -2,6 +2,8 @@
 #include "common/macros.h"
 #include "common/util.h"
 #include "distributed/metadata_server.h"
+#include <algorithm>
+#include <limits>
 
 namespace chfs
 {
@@ -75,9 +77,9 @@ auto ChfsClient::lookup(inode_id_t parent, const std::string &name) -> ChfsResul
         DEBUG_LOG("lookup error");
         return ChfsResult<inode_id_t>(res.unwrap_error());
     }
-    DEBUG_LOG("lookup step1");
+    // DEBUG_LOG("lookup step1");
     auto inode_id = res.unwrap()->as<inode_id_t>();
-    DEBUG_LOG("lookup step2");
+    // DEBUG_LOG("lookup step2");
     if (inode_id == KInvalidInodeID) {
         DEBUG_LOG("lookup invalid inode id");
         return ChfsResult<inode_id_t>(ErrorType::NotExist);
@@ -144,7 +146,8 @@ auto ChfsClient::read_file(inode_id_t id, usize offset, usize size) -> ChfsResul
     auto block_infos = block_infos_res.unwrap()->as<std::vector<BlockInfo>>();
     if (block_infos.empty()) {
         ERROR_LOG("Block info is empty");
-        return ChfsResult<std::vector<u8>>(ErrorType::INVALID);
+        // We return empty vector if the block info is empty
+        return ChfsResult<std::vector<u8>>(std::vector<u8>());
     }
     const auto BLOCK_SIZE = DiskBlockSize;
     // The client goes to the data server to read the data
@@ -153,7 +156,7 @@ auto ChfsClient::read_file(inode_id_t id, usize offset, usize size) -> ChfsResul
         auto mac_id = std::get<1>(block_info);
         auto cli = data_servers_[mac_id];
 
-        DEBUG_LOG("Read data from block id: " << std::get<0>(block_info));
+        // DEBUG_LOG("Read data from block id: " << std::get<0>(block_info));
         auto response = cli->call("read_data", std::get<0>(block_info), 0, BLOCK_SIZE, std::get<2>(block_info));
         if (response.is_err()) {
             ERROR_LOG("Read data failed");

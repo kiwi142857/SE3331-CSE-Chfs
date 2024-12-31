@@ -26,5 +26,6 @@ const usize DistributedMaxInodeSupported = 4096;
 const usize kMaxLogBlockSize = 10 * 1024; // 40MB, 10 * 1K * 4K/per block = 40M
 const usize kMaxLogSize = 128;            // when this reaches, trigger checkpoint
 const usize KCommitLogNum = 1024;         // 1024 log entries
+const usize KReduce = 4;                  // number of reduce tasks
 
 } // namespace chfs

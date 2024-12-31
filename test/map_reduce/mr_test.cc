@@ -166,6 +166,9 @@ TEST_F(MapReduceTest, DistributedMapReduce)
     }
     std::sort(kvs.begin(), kvs.end());
     EXPECT_EQ(kvs, correctKvs) << "incorrect output";
+    // WE PRINT the time cost here
+    std::cout << "Sequential MapReduce cost: " << seq_duration << " ms" << std::endl;
+    std::cout << "Distributed MapReduce cost: " << duration.count() << " ms" << std::endl;
     EXPECT_LE(static_cast<int>(duration.count()), 3 * seq_duration);
 }
 } // namespace mapReduce

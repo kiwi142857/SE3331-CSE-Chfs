@@ -1,6 +1,7 @@
 #include "distributed/client.h"
 #include "librpc/client.h"
 #include "librpc/server.h"
+#include "rpc/msgpack.hpp"
 #include <mutex>
 #include <string>
 #include <utility>
@@ -25,6 +26,16 @@ enum mr_tasktype {
     NONE = 0,
     MAP,
     REDUCE
+};
+
+struct Task {
+    int index;
+    mr_tasktype type;
+    std::chrono::time_point<std::chrono::steady_clock> start_time;
+    bool is_assigned;
+    bool is_completed;
+    char start_char;
+    char end_char;
 };
 
 std::vector<KeyVal> Map(const std::string &content);
@@ -60,11 +71,22 @@ class SequentialMapReduce
     std::string outPutFile;
 };
 
+struct RpcTaskInfo {
+    int type;
+    int index;
+    std::string filename;
+    char start_char;
+    char end_char;
+    unsigned long file_num;
+
+    MSGPACK_DEFINE_ARRAY(type, index, filename, start_char, end_char, file_num);
+};
+
 class Coordinator
 {
   public:
     Coordinator(MR_CoordinatorConfig config, const std::vector<std::string> &files, int nReduce);
-    std::tuple<int, int> askTask(int);
+    RpcTaskInfo askTask(int);
     int submitTask(int taskType, int index);
     bool Done();
 
@@ -72,7 +94,12 @@ class Coordinator
     std::vector<std::string> files;
     std::mutex mtx;
     bool isFinished;
+    int nReduce;
+    std::vector<Task> map_tasks;
+    std::vector<Task> reduce_tasks;
+    Task merge_task;
     std::unique_ptr<chfs::RpcServer> rpc_server;
+    void checkTimeoutTasks();
 };
 
 class Worker
@@ -84,7 +111,8 @@ class Worker
 
   private:
     void doMap(int index, const std::string &filename);
-    void doReduce(int index, int nfiles);
+    void doReduce(int index, int nfiles, char start_char, char end_char);
+    void doMerge();
     void doSubmit(mr_tasktype taskType, int index);
 
     std::string outPutFile;
@@ -92,5 +120,6 @@ class Worker
     std::shared_ptr<chfs::ChfsClient> chfs_client;
     std::unique_ptr<std::thread> work_thread;
     bool shouldStop = false;
+    int nReduce;
 };
 } // namespace mapReduce

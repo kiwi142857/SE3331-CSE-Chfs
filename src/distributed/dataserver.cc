@@ -70,7 +70,7 @@ auto DataServer::read_data(block_id_t block_id, usize offset, usize len, version
     // 3. read the data from the block
     // 4. return the data
 
-    DEBUG_LOG("Read data from block id: " << block_id << " offset: " << offset << " len: " << len);
+    // DEBUG_LOG("Read data from block id: " << block_id << " offset: " << offset << " len: " << len);
 
     // check version here
     // we'll read the version info in block[1], so we need to read the version info from block[1]
@@ -100,7 +100,7 @@ auto DataServer::read_data(block_id_t block_id, usize offset, usize len, version
     std::vector<u8> data(buf + offset, buf + offset + len);
 
     // we print the data here
-    DEBUG_LOG("Read data from block id: " << block_id << " offset: " << offset << " len: " << len);
+    // DEBUG_LOG("Read data from block id: " << block_id << " offset: " << offset << " len: " << len);
 
     delete[] buf;
 
@@ -170,7 +170,7 @@ auto DataServer::alloc_block() -> std::pair<block_id_t, version_t>
         return {};
     }
 
-    DEBUG_LOG("Allocated block id: " << res.unwrap());
+    // DEBUG_LOG("Allocated block id: " << res.unwrap());
     return {res.unwrap(), block_version};
 }
 

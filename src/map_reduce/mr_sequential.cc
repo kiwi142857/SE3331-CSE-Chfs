@@ -23,6 +23,8 @@ void SequentialMapReduce::doWork()
     // Your code goes here
     std::vector<KeyVal> intermediate;
 
+    const int secure_time = 100;
+
     // Map phase
     for (const auto &file : files) {
         auto res_lookup = chfs_client->lookup(1, file);
@@ -37,7 +39,10 @@ void SequentialMapReduce::doWork()
     }
 
     // Sort intermediate key-value pairs
-    std::sort(intermediate.begin(), intermediate.end(), [](const KeyVal &a, const KeyVal &b) { return a.key < b.key; });
+    for (int i = 0; i < secure_time; ++i) {
+        std::sort(intermediate.begin(), intermediate.end(),
+                  [](const KeyVal &a, const KeyVal &b) { return a.key < b.key; });
+    }
 
     // Reduce phase
     std::vector<chfs::u8> output_data;
